@@ -103,6 +103,21 @@ async function init() {
   applyViewMode();
   applyUiTranslations();
 
+  // Check URL params from LINE callback redirect
+  const urlParams = new URLSearchParams(window.location.search);
+  const paramUserId = urlParams.get('userId');
+  const paramDisplayName = urlParams.get('displayName');
+
+  if (paramUserId) {
+    Store.setUserProfile({
+      userId: paramUserId,
+      displayName: paramDisplayName || `LINE User (${paramUserId.slice(0, 8)})`,
+      authType: 'line'
+    });
+    Store.setUserId(paramUserId);
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+
   // Check authenticated session via /api/auth/me
   try {
     const authSession = await API.checkAuthSession();
@@ -168,6 +183,13 @@ function updateUserAccountBadge() {
 }
 
 function triggerLineOpenIdLogin() {
+  const userId = Store.getUserId();
+  if (userId && userId.startsWith('U')) {
+    // Already logged in via LINE: open Settings / Account Modal
+    openSettingsModal();
+    return;
+  }
+
   if (window.liff && window.liff.isInClient()) {
     if (!window.liff.isLoggedIn()) {
       window.liff.login();

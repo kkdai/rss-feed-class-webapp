@@ -12,6 +12,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
 const REQUEST_TIMEOUT_MS = 10000;
 const USER_AGENT = 'FeedFlow/1.0 (+https://github.com/feedflow/feedflow)';
@@ -509,9 +510,13 @@ app.get('/api/auth/line/callback', async (req, res) => {
 
     if (req.session) {
       req.session.user = userSessionObj;
+      req.session.save(err => {
+        if (err) console.warn('Session save note:', err);
+        return res.redirect(`/?userId=${encodeURIComponent(lineUid)}&displayName=${encodeURIComponent(userSessionObj.displayName)}`);
+      });
+    } else {
+      return res.redirect(`/?userId=${encodeURIComponent(lineUid)}&displayName=${encodeURIComponent(userSessionObj.displayName)}`);
     }
-
-    res.redirect('/');
   } catch (err) {
     console.error('LINE Callback Error:', err.message);
     res.status(500).send(`LINE OpenID Authentication Failed: ${err.message}`);
