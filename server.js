@@ -3,6 +3,7 @@ import Parser from 'rss-parser';
 import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Firestore } from '@google-cloud/firestore';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,6 +12,17 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const REQUEST_TIMEOUT_MS = 10000;
 const USER_AGENT = 'FeedFlow/1.0 (+https://github.com/feedflow/feedflow)';
+
+// Initialize Firestore
+let db = null;
+try {
+  db = new Firestore({
+    projectId: process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex',
+  });
+  console.log('Firestore DB initialized successfully.');
+} catch (err) {
+  console.warn('Firestore DB initialization warning:', err.message);
+}
 
 const parser = new Parser({
   customFields: {
@@ -217,16 +229,24 @@ function detectLanguage(title = '', text = '') {
   return { code: 'zh-TW', name: '繁體中文', isTraditionalChinese: true };
 }
 
+const LANG_TARGET_NAMES = {
+  'zh-TW': 'Traditional Chinese (繁體中文)',
+  'en': 'English',
+  'ja': 'Japanese (日本語)'
+};
+
 /**
- * Translate title and content into Traditional Chinese using Gemini 2.5 Flash
+ * Translate title and content using Gemini 2.5 Flash
  */
-async function translateTextWithGemini(textToTranslate, titleToTranslate) {
+async function translateTextWithGemini(textToTranslate, titleToTranslate, targetLang = 'zh-TW') {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY is not set on the server.');
   }
 
-  const prompt = `You are a professional translator. Translate the following title and text into natural Traditional Chinese (繁體中文).
+  const targetLangName = LANG_TARGET_NAMES[targetLang] || 'Traditional Chinese (繁體中文)';
+
+  const prompt = `You are a professional translator. Translate the following title and text into natural ${targetLangName}.
 Return ONLY a valid JSON object with keys "translatedTitle" and "translatedContent". Preserve HTML structure in translatedContent if HTML tags exist. Do not wrap output in markdown code blocks.
 
 Title to translate:
@@ -258,12 +278,12 @@ ${textToTranslate || ''}`;
 
 /**
  * POST /api/translate
- * Request body: { title, content, languageName }
+ * Request body: { title, content, languageName, targetLanguage }
  */
 app.post('/api/translate', async (req, res) => {
-  const { title, content, languageName } = req.body || {};
+  const { title, content, languageName, targetLanguage } = req.body || {};
   try {
-    const result = await translateTextWithGemini(content, title);
+    const result = await translateTextWithGemini(content, title, targetLanguage || 'zh-TW');
     return res.json({
       translatedTitle: result.translatedTitle || title,
       translatedContent: result.translatedContent || content,
@@ -273,6 +293,139 @@ app.post('/api/translate', async (req, res) => {
     console.error('Translation error:', err.message);
     return res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Multi-User Firestore Endpoints ────────────────
+
+/**
+ * GET /api/user/data?userId=...
+ */
+app.get('/api/user/data', async (req, res) => {
+  const userId = req.query.userId || req.headers['x-user-id'] || 'default-user';
+  if (!db) {
+    return res.json({ storage: 'local', userId });
+  }
+
+  try {
+    const userRef = db.collection('users').doc(userId);
+    const userDoc = await userRef.get();
+
+    const foldersSnap = await userRef.collection('folders').get();
+    const subsSnap = await userRef.collection('subscriptions').get();
+    const readsSnap = await userRef.collection('read_states').get();
+
+    const settings = userDoc.exists ? (userDoc.data().settings || {}) : {};
+    const folders = foldersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const feeds = subsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    
+    const readStates = {};
+    readsSnap.docs.forEach(doc => {
+      readStates[doc.id] = doc.data();
+    });
+
+    return res.json({
+      storage: 'firestore',
+      userId,
+      settings,
+      folders,
+      feeds,
+      readStates
+    });
+  } catch (err) {
+    console.warn('Firestore user fetch failed, fallback to local:', err.message);
+    return res.json({ storage: 'local', userId, error: err.message });
+  }
+});
+
+/**
+ * POST /api/user/settings
+ */
+app.post('/api/user/settings', async (req, res) => {
+  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const { settings } = req.body || {};
+
+  if (db && settings) {
+    try {
+      await db.collection('users').doc(userId).set({
+        settings,
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (err) {
+      console.warn('Firestore settings update error:', err.message);
+    }
+  }
+
+  return res.json({ success: true, settings });
+});
+
+/**
+ * POST /api/user/folder
+ */
+app.post('/api/user/folder', async (req, res) => {
+  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const { folder, action } = req.body || {};
+
+  if (db && folder && folder.id) {
+    try {
+      const ref = db.collection('users').doc(userId).collection('folders').doc(folder.id);
+      if (action === 'delete') {
+        await ref.delete();
+      } else {
+        await ref.set(folder, { merge: true });
+      }
+    } catch (err) {
+      console.warn('Firestore folder write error:', err.message);
+    }
+  }
+
+  return res.json({ success: true });
+});
+
+/**
+ * POST /api/user/subscription
+ */
+app.post('/api/user/subscription', async (req, res) => {
+  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const { feed, action } = req.body || {};
+
+  if (db && feed && feed.id) {
+    try {
+      const ref = db.collection('users').doc(userId).collection('subscriptions').doc(feed.id);
+      if (action === 'delete') {
+        await ref.delete();
+      } else {
+        await ref.set(feed, { merge: true });
+      }
+    } catch (err) {
+      console.warn('Firestore subscription write error:', err.message);
+    }
+  }
+
+  return res.json({ success: true });
+});
+
+/**
+ * POST /api/user/read-state
+ */
+app.post('/api/user/read-state', async (req, res) => {
+  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const { feedId, lastReadArticleId, readArticleIds } = req.body || {};
+
+  if (db && feedId) {
+    try {
+      const ref = db.collection('users').doc(userId).collection('read_states').doc(feedId);
+      await ref.set({
+        feedId,
+        lastReadArticleId: lastReadArticleId || '',
+        readArticleIds: readArticleIds || [],
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    } catch (err) {
+      console.warn('Firestore read-state write error:', err.message);
+    }
+  }
+
+  return res.json({ success: true });
 });
 
 /**
