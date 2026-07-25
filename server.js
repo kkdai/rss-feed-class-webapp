@@ -177,6 +177,105 @@ async function tryParseFeed(xmlString) {
 }
 
 /**
+ * Detect language of text
+ */
+function detectLanguage(title = '', text = '') {
+  const sample = (title + ' ' + text).substring(0, 500);
+  if (!sample.trim()) return { code: 'zh-TW', name: '繁體中文', isTraditionalChinese: true };
+
+  // Check Japanese Kana (Hiragana / Katakana)
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(sample)) {
+    return { code: 'ja', name: '日文', isTraditionalChinese: false };
+  }
+
+  // Check Korean Hangul
+  if (/[\uAC00-\uD7AF\u1100-\u11FF]/.test(sample)) {
+    return { code: 'ko', name: '韓文', isTraditionalChinese: false };
+  }
+
+  // Check CJK character count
+  const cjkMatches = sample.match(/[\u4E00-\u9FA5]/g) || [];
+  const totalLetters = sample.replace(/[\s\d\p{P}]/gu, '').length || 1;
+  const cjkRatio = cjkMatches.length / totalLetters;
+
+  if (cjkRatio < 0.15) {
+    // English / Western language
+    return { code: 'en', name: '英文', isTraditionalChinese: false };
+  }
+
+  // CJK text - distinguish Simplified Chinese vs Traditional Chinese
+  const simplifiedChars = /[简体国广时为经体发关个来线对这动会与书产]/g;
+  const traditionalChars = /[繁體國廣時為經體發關個來線對這動會與書產]/g;
+
+  const simpCount = (sample.match(simplifiedChars) || []).length;
+  const tradCount = (sample.match(traditionalChars) || []).length;
+
+  if (simpCount > tradCount) {
+    return { code: 'zh-CN', name: '簡體中文', isTraditionalChinese: false };
+  }
+
+  return { code: 'zh-TW', name: '繁體中文', isTraditionalChinese: true };
+}
+
+/**
+ * Translate title and content into Traditional Chinese using Gemini 2.5 Flash
+ */
+async function translateTextWithGemini(textToTranslate, titleToTranslate) {
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not set on the server.');
+  }
+
+  const prompt = `You are a professional translator. Translate the following title and text into natural Traditional Chinese (繁體中文).
+Return ONLY a valid JSON object with keys "translatedTitle" and "translatedContent". Preserve HTML structure in translatedContent if HTML tags exist. Do not wrap output in markdown code blocks.
+
+Title to translate:
+${titleToTranslate || ''}
+
+Content to translate:
+${textToTranslate || ''}`;
+
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini API error ${response.status}: ${errText}`);
+  }
+
+  const data = await response.json();
+  const rawJsonStr = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+  return JSON.parse(rawJsonStr);
+}
+
+/**
+ * POST /api/translate
+ * Request body: { title, content, languageName }
+ */
+app.post('/api/translate', async (req, res) => {
+  const { title, content, languageName } = req.body || {};
+  try {
+    const result = await translateTextWithGemini(content, title);
+    return res.json({
+      translatedTitle: result.translatedTitle || title,
+      translatedContent: result.translatedContent || content,
+      languageName: languageName || '外文'
+    });
+  } catch (err) {
+    console.error('Translation error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /api/feed/parse?url=<url>
  */
 app.get('/api/feed/parse', async (req, res) => {
@@ -212,16 +311,24 @@ app.get('/api/feed/parse', async (req, res) => {
           ? item.categories.map(c => typeof c === 'string' ? c : (c?._ || c?.name || '')).filter(Boolean)
           : [];
 
+        const title = item.title || 'Untitled';
+        const summary = extractSummary(item);
+        const content = item.contentEncoded || item['content:encoded'] || item.content || item.description || '';
+        const langInfo = detectLanguage(title, summary || content);
+
         return {
           id: item.guid || item.id || item.link || `item-${idx}-${Date.now()}`,
-          title: item.title || 'Untitled',
+          title,
           link: item.link || '',
-          content: item.contentEncoded || item['content:encoded'] || item.content || item.description || '',
-          summary: extractSummary(item),
+          content,
+          summary,
           pubDate: item.pubDate || item.isoDate || item.date || '',
           author: item.creator || item.dcCreator || item.author || item['dc:creator'] || '',
           thumbnail: extractThumbnail(item),
-          categories
+          categories,
+          languageCode: langInfo.code,
+          languageName: langInfo.name,
+          isTraditionalChinese: langInfo.isTraditionalChinese
         };
       })
     };

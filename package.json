@@ -9,6 +9,7 @@
     "dev": "node --watch server.js"
   },
   "dependencies": {
+    "@google/genai": "^2.13.0",
     "cheerio": "^1.0.0",
     "express": "^4.21.0",
     "rss-parser": "^3.13.0"
