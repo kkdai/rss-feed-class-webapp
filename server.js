@@ -415,6 +415,12 @@ app.get('/api/auth/line/callback', async (req, res) => {
     return res.status(400).send('Missing authorization code from LINE.');
   }
 
+  if (req.session && req.session.lineAuthState) {
+    if (!state || state !== req.session.lineAuthState.state) {
+      return res.status(403).send('Invalid state parameter (CSRF detected).');
+    }
+  }
+
   try {
     const protocol = req.headers['x-forwarded-proto'] || req.protocol;
     const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -453,6 +459,9 @@ app.get('/api/auth/line/callback', async (req, res) => {
     if (idToken) {
       try {
         const verifyParams = new URLSearchParams({ id_token: idToken, client_id: LINE_CHANNEL_ID });
+        if (req.session && req.session.lineAuthState && req.session.lineAuthState.nonce) {
+          verifyParams.append('nonce', req.session.lineAuthState.nonce);
+        }
         const verifyResp = await fetch('https://api.line.me/oauth2/v2.1/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
