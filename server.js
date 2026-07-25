@@ -310,7 +310,7 @@ app.post('/api/translate', async (req, res) => {
 
 // ─── LINE OpenID Connect & Session ────────────────
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || 'REDACTED_LINE_CHANNEL_SECRET';
-const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || '';
+const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || 'REDACTED_LINE_CHANNEL_ID';
 const DEFAULT_LINE_USER_ID = 'REDACTED_LINE_UID';
 
 /**
