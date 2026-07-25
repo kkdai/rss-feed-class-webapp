@@ -182,7 +182,7 @@ export async function logoutSession() {
 export async function verifyLineIdToken(idToken) {
   const res = await fetch('/api/auth/line/verify-idtoken', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken })
   });
   const data = await res.json();
