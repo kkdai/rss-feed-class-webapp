@@ -1051,7 +1051,7 @@ async function previewFeed(feedUrl) {
       let pagesHtml = '';
       for (let i = 0; i < sampleArticles.length; i += itemsPerPage) {
         const pageItems = sampleArticles.slice(i, i + itemsPerPage);
-        pagesHtml += `<div class="feed-preview-page" style="scroll-snap-align: start; min-height: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px;">
+        pagesHtml += `<div class="feed-preview-page" style="height: 100%; min-height: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px; box-sizing: border-box;">
           ${pageItems.map(art => {
             const artTitle = art.translatedTitle ? `${escHtml(art.translatedTitle)} <span class="orig-title">(${escHtml(art.title)})</span>` : escHtml(art.title);
             const langBadge = !art.isTraditionalChinese ? `<span class="lang-badge">${escHtml(art.languageName || '外文')}</span>` : '';
@@ -1068,10 +1068,12 @@ async function previewFeed(feedUrl) {
         <div class="feed-preview-samples" style="margin-top: 15px;">
           <div class="feed-preview-samples-title" style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
             <span>最新文章預覽 (${sampleArticles.length} 篇):</span>
-            <span style="font-size: 12px; color: var(--text-muted); animation: pulse 2s infinite;">☝️ 往上滑動翻頁</span>
+            <span id="previewPageIndicator" style="font-size: 12px; color: var(--text-muted); animation: pulse 2s infinite;">☝️ 往上滑動翻頁 (1/${Math.ceil(sampleArticles.length/itemsPerPage)})</span>
           </div>
-          <div class="feed-preview-carousel" style="scroll-snap-type: y mandatory; overflow-y: auto; height: 320px; display: flex; flex-direction: column; scroll-behavior: smooth;">
-            ${pagesHtml}
+          <div id="previewCarouselContainer" style="overflow: hidden; height: 320px; position: relative;">
+            <div id="previewCarouselInner" style="height: 100%; display: flex; flex-direction: column; transition: transform 0.3s ease;">
+              ${pagesHtml}
+            </div>
           </div>
         </div>`;
     }
@@ -1095,6 +1097,38 @@ async function previewFeed(feedUrl) {
           <span>${escHtml(feedUrl)}</span>
         </div>
       </div>`;
+
+    if (sampleArticles.length > 0) {
+      const carouselContainer = document.getElementById('previewCarouselContainer');
+      const carouselInner = document.getElementById('previewCarouselInner');
+      const pageIndicator = document.getElementById('previewPageIndicator');
+      if (carouselContainer && carouselInner) {
+        let startY = 0;
+        let currentPage = 0;
+        const totalPages = Math.ceil(sampleArticles.length / 5);
+        
+        carouselContainer.addEventListener('touchstart', (e) => {
+          startY = e.touches[0].clientY;
+        }, { passive: true });
+        
+        carouselContainer.addEventListener('touchend', (e) => {
+          const endY = e.changedTouches[0].clientY;
+          const diffY = startY - endY;
+          if (Math.abs(diffY) > 40) { // swipe threshold
+            if (diffY > 0 && currentPage < totalPages - 1) {
+              currentPage++; // swipe up
+            } else if (diffY < 0 && currentPage > 0) {
+              currentPage--; // swipe down
+            }
+            carouselInner.style.transform = \`translateY(-\${currentPage * 100}%)\`;
+            if (pageIndicator) {
+              pageIndicator.innerText = \`☝️ 往上滑動翻頁 (\${currentPage + 1}/\${totalPages})\`;
+              pageIndicator.style.animation = 'none'; // Stop pulse after first interaction
+            }
+          }
+        }, { passive: true });
+      }
+    }
 
     DOM.folderSelectGroup.style.display = '';
     DOM.addFeedFooter.style.display = '';
