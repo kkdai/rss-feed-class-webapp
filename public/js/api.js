@@ -27,6 +27,22 @@ export async function parseFeed(url) {
 }
 
 /**
+ * Preview feed with Gemini translation
+ */
+export async function previewFeedApi(url, targetLanguage = 'zh-TW') {
+  const res = await fetch('/api/feed/preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, targetLanguage })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Failed to preview feed');
+  }
+  return data;
+}
+
+/**
  * Discover RSS feeds from a website URL
  * @param {string} url - The website URL
  * @returns {Promise<{feeds: [{url, title, type}]}>}
