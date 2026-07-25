@@ -429,6 +429,97 @@ app.post('/api/user/read-state', async (req, res) => {
 });
 
 /**
+ * POST /api/feed/preview
+ * Rich feed preview with Gemini translation for feed details & top sample items
+ */
+app.post('/api/feed/preview', async (req, res) => {
+  const { url: rawUrl, targetLanguage = 'zh-TW' } = req.body || {};
+
+  if (!rawUrl) {
+    return res.status(400).json({ error: 'Query parameter "url" is required.' });
+  }
+
+  const targetUrl = normalizeUrl(rawUrl);
+  if (!targetUrl) {
+    return res.status(400).json({ error: 'Invalid URL format provided.' });
+  }
+
+  try {
+    const response = await fetchWithTimeout(targetUrl);
+    if (!response.ok) {
+      return res.status(response.status).json({
+        error: `Failed to fetch feed (HTTP ${response.status}: ${response.statusText})`
+      });
+    }
+
+    const xmlData = await response.text();
+    const feed = await parser.parseString(xmlData);
+
+    const title = feed.title || 'Untitled Feed';
+    const description = feed.description || feed.snippet || '';
+    const sampleItems = (feed.items || []).slice(0, 3).map(item => {
+      const itemTitle = item.title || 'Untitled';
+      const itemSummary = extractSummary(item);
+      const langInfo = detectLanguage(itemTitle, itemSummary);
+      return {
+        title: itemTitle,
+        summary: itemSummary,
+        pubDate: item.pubDate || item.isoDate || item.date || '',
+        languageName: langInfo.name,
+        isTraditionalChinese: langInfo.isTraditionalChinese
+      };
+    });
+
+    let translatedTitle = title;
+    let translatedDescription = description;
+    let isTranslated = false;
+
+    // Check if Gemini translation is available
+    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+    if (apiKey) {
+      try {
+        const transResult = await translateTextWithGemini(description, title, targetLanguage);
+        if (transResult && transResult.translatedTitle) {
+          translatedTitle = transResult.translatedTitle;
+          translatedDescription = transResult.translatedContent || description;
+          isTranslated = true;
+        }
+      } catch (err) {
+        console.warn('Preview translation error:', err.message);
+      }
+
+      // Also translate sample item titles in parallel
+      await Promise.allSettled(sampleItems.map(async (item) => {
+        if (!item.isTraditionalChinese) {
+          try {
+            const itemTrans = await translateTextWithGemini('', item.title, targetLanguage);
+            if (itemTrans && itemTrans.translatedTitle) {
+              item.translatedTitle = itemTrans.translatedTitle;
+            }
+          } catch {
+            // Ignore single item translation failure
+          }
+        }
+      }));
+    }
+
+    return res.json({
+      title,
+      description,
+      translatedTitle,
+      translatedDescription,
+      isTranslated,
+      targetLanguage,
+      link: feed.link || targetUrl,
+      itemCount: feed.items?.length || 0,
+      sampleArticles: sampleItems
+    });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to preview feed: ${err.message}` });
+  }
+});
+
+/**
  * GET /api/feed/parse?url=<url>
  */
 app.get('/api/feed/parse', async (req, res) => {

@@ -786,47 +786,71 @@ function showDiscoveryResults(feeds) {
 }
 
 async function previewFeed(feedUrl) {
-  DOM.feedPreview.innerHTML = '<div class="spinner spinner-sm"></div>';
+  const settings = Store.getSettings();
+  const targetLang = settings.targetLanguage || 'zh-TW';
+
+  DOM.feedPreview.innerHTML = `
+    <div class="state-message" style="padding: 20px 0;">
+      <div class="spinner spinner-sm"></div>
+      <p style="margin-top:10px; font-size:13px;">${t('translating', settings.uiLanguage || 'zh-TW')}</p>
+    </div>`;
   DOM.feedPreview.classList.remove('hidden');
   DOM.feedDiscoveryResults.classList.add('hidden');
 
   try {
-    const feedData = await API.parseFeed(feedUrl);
+    const [feedData, previewData] = await Promise.all([
+      API.parseFeed(feedUrl),
+      API.previewFeedApi(feedUrl, targetLang).catch(err => {
+        console.warn('API preview error:', err.message);
+        return null;
+      })
+    ]);
+
     state.pendingFeedUrl = feedUrl;
     state.pendingFeedData = feedData;
 
-    const settings = Store.getSettings();
-    const targetLang = settings.targetLanguage || 'zh-TW';
+    const displayTitle = previewData?.translatedTitle 
+      ? (previewData.translatedTitle !== feedData.title ? `${previewData.translatedTitle} (${feedData.title})` : feedData.title)
+      : feedData.title;
 
-    let displayTitle = feedData.title;
-    let displayDesc = feedData.description || '';
+    const displayDesc = previewData?.translatedDescription || feedData.description || '';
+    const isTranslated = previewData?.isTranslated || false;
+    const sampleArticles = previewData?.sampleArticles || [];
+    const itemCount = feedData.items?.length || 0;
 
-    // If feed preview is in foreign language, translate preview using Gemini 2.5 Flash
-    if (displayTitle || displayDesc) {
-      try {
-        const transRes = await API.translateArticle(displayTitle, displayDesc, 'Feed Preview', targetLang);
-        if (transRes && transRes.translatedTitle) {
-          displayTitle = `${transRes.translatedTitle} (${feedData.title})`;
-          displayDesc = transRes.translatedContent || displayDesc;
-        }
-      } catch (err) {
-        console.warn('Feed preview translation skipped:', err.message);
-      }
+    let sampleArticlesHtml = '';
+    if (sampleArticles.length > 0) {
+      sampleArticlesHtml = `
+        <div class="feed-preview-samples">
+          <div class="feed-preview-samples-title">最新範例文章 (Sample Articles):</div>
+          ${sampleArticles.map(art => {
+            const artTitle = art.translatedTitle ? `${escHtml(art.translatedTitle)} <span class="orig-title">(${escHtml(art.title)})</span>` : escHtml(art.title);
+            const langBadge = !art.isTraditionalChinese ? `<span class="lang-badge">${escHtml(art.languageName || '外文')}</span>` : '';
+            return `
+              <div class="feed-preview-sample-item">
+                ${langBadge}
+                <div>${artTitle}</div>
+              </div>`;
+          }).join('')}
+        </div>`;
     }
 
-    const itemCount = feedData.items?.length || 0;
     DOM.feedPreview.innerHTML = `
       <div class="feed-preview-card">
         <div class="feed-preview-header">
           <img class="feed-preview-favicon" src="${escAttr(API.getFaviconUrl(feedData.link || feedUrl))}"
                alt="" onerror="this.style.display='none'">
           <div>
-            <h3 class="feed-preview-title">${escHtml(displayTitle)}</h3>
-            <p class="feed-preview-desc">${escHtml(truncate(displayDesc, 120))}</p>
+            <div style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+              <h3 class="feed-preview-title" style="margin:0;">${escHtml(displayTitle)}</h3>
+              ${isTranslated ? `<span class="translated-badge">✨ Gemini 翻譯</span>` : ''}
+            </div>
+            <p class="feed-preview-desc">${escHtml(truncate(displayDesc, 140))}</p>
           </div>
         </div>
+        ${sampleArticlesHtml}
         <div class="feed-preview-stats">
-          <span>${itemCount} articles</span>
+          <span>共 ${itemCount} 篇文章</span>
           <span>${escHtml(feedUrl)}</span>
         </div>
       </div>`;
