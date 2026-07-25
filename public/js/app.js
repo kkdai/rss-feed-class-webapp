@@ -129,13 +129,14 @@ async function init() {
     console.warn('Session check note:', err.message);
   }
 
+  // Update badge and UI with active user profile
   const userId = Store.getUserId();
   updateUserAccountBadge();
 
   renderSidebar();
   loadCurrentView();
 
-  // Try LIFF init in LINE browser
+  // Async LIFF init in background
   tryInitLiff();
 
   // Async Firestore multi-user sync in background
@@ -190,7 +191,7 @@ function triggerLineOpenIdLogin() {
     return;
   }
 
-  if (window.liff && window.liff.isInClient()) {
+  if (window.liff && window.liff.isInClient && window.liff.isInClient()) {
     if (!window.liff.isLoggedIn()) {
       window.liff.login();
       return;
@@ -210,15 +211,25 @@ async function handleLineLogout() {
 }
 
 async function tryInitLiff() {
-  if (window.liff) {
-    try {
-      if (window.liff.isInClient() && window.liff.isLoggedIn()) {
+  if (!window.liff) return;
+
+  try {
+    const configRes = await fetch('/api/config');
+    const config = await configRes.json();
+
+    if (config.lineLiffId) {
+      await window.liff.init({ liffId: config.lineLiffId });
+      console.log('LIFF SDK initialized with LIFF ID:', config.lineLiffId);
+
+      if (window.liff.isLoggedIn()) {
         const idToken = window.liff.getIDToken();
         if (idToken) {
           const authRes = await API.verifyLineIdToken(idToken);
           if (authRes && authRes.user) {
             Store.setUserProfile(authRes.user);
+            Store.setUserId(authRes.user.userId);
             updateUserAccountBadge();
+
             const remoteData = await API.fetchUserData(authRes.user.userId);
             if (remoteData && remoteData.storage === 'firestore') {
               Store.syncWithFirestore(remoteData);
@@ -228,9 +239,9 @@ async function tryInitLiff() {
           }
         }
       }
-    } catch (err) {
-      console.warn('LIFF OIDC init note:', err.message);
     }
+  } catch (err) {
+    console.warn('LIFF SDK init note:', err.message);
   }
 }
 

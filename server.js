@@ -524,6 +524,17 @@ app.get('/api/auth/line/callback', async (req, res) => {
 });
 
 /**
+ * GET /api/config
+ * Expose public application configuration for client-side LIFF SDK & LINE Login
+ */
+app.get('/api/config', (req, res) => {
+  return res.json({
+    lineChannelId: LINE_CHANNEL_ID,
+    lineLiffId: process.env.LINE_LIFF_ID || ''
+  });
+});
+
+/**
  * POST /api/auth/line/verify-idtoken
  * Verify LINE ID Token (from LIFF) and establish session
  */
@@ -573,6 +584,7 @@ app.post('/api/auth/line/verify-idtoken', async (req, res) => {
 
     if (req.session) {
       req.session.user = userObj;
+      await new Promise(resolve => req.session.save(resolve));
     }
 
     return res.json({ success: true, user: userObj });
