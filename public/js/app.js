@@ -586,6 +586,7 @@ function updateActiveNav() {
 
 function navigateTo(view) {
   state.currentView = view;
+  state.currentPage = 0;
   closeSidebar();
   updateActiveNav();
   loadCurrentView();
@@ -1353,6 +1354,7 @@ async function refreshFeeds() {
 
   DOM.refreshBtn.classList.remove('spinning');
   state.isRefreshing = false;
+  state.currentPage = 0;
 
   renderSidebar();
   loadCurrentView();
