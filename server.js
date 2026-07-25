@@ -34,9 +34,10 @@ try {
   const gcpProject = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex';
   const gcpLocation = process.env.GCP_LOCATION || 'asia-east1';
   aiClient = new GoogleGenAI({
-    vertexAI: true,
-    project: gcpProject,
-    location: gcpLocation,
+    vertexai: {
+      project: gcpProject,
+      location: gcpLocation,
+    }
   });
   console.log(`Vertex AI client initialized with self-identity (ADC) for project=${gcpProject}, location=${gcpLocation}`);
 } catch (err) {
