@@ -451,6 +451,30 @@ function loadCurrentView() {
 
 // ─── Article Rendering ─────────────────────────────
 
+function getArticleLanguageInfo(article) {
+  if (typeof article.isTraditionalChinese === 'boolean' && article.languageName) {
+    return {
+      isTraditionalChinese: article.isTraditionalChinese,
+      languageName: article.languageName
+    };
+  }
+
+  // On-the-fly client side detection fallback for legacy or cached articles
+  const sample = (article.title + ' ' + (article.summary || article.content || '')).substring(0, 500);
+  if (/[\u3040-\u309F\u30A0-\u30FF]/.test(sample)) return { isTraditionalChinese: false, languageName: '日文' };
+  if (/[\uAC00-\uD7AF\u1100-\u11FF]/.test(sample)) return { isTraditionalChinese: false, languageName: '韓文' };
+  
+  const cjkMatches = sample.match(/[\u4E00-\u9FA5]/g) || [];
+  const totalLetters = sample.replace(/[\s\d\p{P}]/gu, '').length || 1;
+  if (cjkMatches.length / totalLetters < 0.15) return { isTraditionalChinese: false, languageName: '英文' };
+
+  const simpCount = (sample.match(/[简体国广时为经体发关个来线对这动会与书产]/g) || []).length;
+  const tradCount = (sample.match(/[繁體國廣時為經體發關個來線對這動會與書產]/g) || []).length;
+  if (simpCount > tradCount) return { isTraditionalChinese: false, languageName: '簡體中文' };
+
+  return { isTraditionalChinese: true, languageName: '繁體中文' };
+}
+
 function renderArticles(articles) {
   const settings = Store.getSettings();
   const readSet = Store.getReadSet();
@@ -498,14 +522,72 @@ function renderArticles(articles) {
       if (article) openArticle(article);
     });
   });
+
+  // Auto-translate non-Traditional Chinese articles displayed in the main list view
+  autoTranslateArticles(articles);
+}
+
+async function autoTranslateArticles(articles) {
+  const settings = Store.getSettings();
+  const targetLang = settings.targetLanguage || 'zh-TW';
+
+  // Find articles that need translation and are not cached yet
+  const untranslated = articles.filter(a => {
+    const langInfo = getArticleLanguageInfo(a);
+    return !langInfo.isTraditionalChinese && !Store.getTranslation(a.id);
+  });
+
+  if (untranslated.length === 0) return;
+
+  // Process in background batches of 3
+  const batchSize = 3;
+  for (let i = 0; i < untranslated.length; i += batchSize) {
+    const batch = untranslated.slice(i, i + batchSize);
+    await Promise.allSettled(batch.map(async (art) => {
+      try {
+        const langInfo = getArticleLanguageInfo(art);
+        const res = await API.translateArticle(art.title, art.summary || art.content, langInfo.languageName, targetLang);
+        if (res && res.translatedTitle) {
+          const translation = {
+            translatedTitle: res.translatedTitle,
+            translatedContent: res.translatedContent
+          };
+          Store.saveTranslation(art.id, translation);
+
+          // Update card DOM elements in main view
+          const cardEl = DOM.articlesList.querySelector(`[data-article-id="${CSS.escape(art.id)}"]`);
+          if (cardEl) {
+            const titleEl = cardEl.querySelector('.article-title');
+            const snippetEl = cardEl.querySelector('.article-snippet');
+            const metaEl = cardEl.querySelector('.article-meta');
+            if (titleEl) titleEl.textContent = res.translatedTitle;
+            if (snippetEl) snippetEl.textContent = truncate(stripHtml(res.translatedContent), 120);
+            if (metaEl && !metaEl.querySelector('.translated-badge')) {
+              const badge = document.createElement('span');
+              badge.className = 'translated-badge';
+              badge.textContent = '✨ 繁中';
+              metaEl.appendChild(badge);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Auto translation failed for article:', art.id, err.message);
+      }
+    }));
+  }
 }
 
 function renderArticleCard(article, viewMode, isRead) {
   const timeAgo = formatTimeAgo(article.pubDate);
   const readClass = isRead ? 'read' : '';
   const favicon = article.feedFavicon || '';
-  const langBadge = (article.isTraditionalChinese === false && article.languageName)
-    ? `<span class="lang-badge">${escHtml(article.languageName)}</span>`
+
+  const langInfo = getArticleLanguageInfo(article);
+  article.isTraditionalChinese = langInfo.isTraditionalChinese;
+  article.languageName = langInfo.languageName;
+
+  const langBadge = (!langInfo.isTraditionalChinese && langInfo.languageName)
+    ? `<span class="lang-badge">${escHtml(langInfo.languageName)}</span>`
     : '';
 
   const translation = Store.getTranslation(article.id);
@@ -537,6 +619,7 @@ function renderArticleCard(article, viewMode, isRead) {
           ${favicon ? `<img class="article-favicon" src="${escAttr(favicon)}" alt="" onerror="this.style.display='none'">` : ''}
           <span class="article-title">${escHtml(displayTitle)}</span>
           ${langBadge}
+          ${translatedBadge}
           <span class="article-date">${timeAgo}</span>
         </div>`;
 
@@ -545,6 +628,7 @@ function renderArticleCard(article, viewMode, isRead) {
         <div class="article-card ${readClass}" data-article-id="${escAttr(article.id)}">
           <span class="article-title">${escHtml(displayTitle)}</span>
           ${langBadge}
+          ${translatedBadge}
         </div>`;
 
     case 'cards':
