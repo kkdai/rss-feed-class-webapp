@@ -469,6 +469,7 @@ img, picture, video, canvas, svg {
 
 .articles-page {
   height: 100%;
+  min-height: 100%;
   flex-shrink: 0;
   overflow: hidden;
   display: flex;
