@@ -100,6 +100,7 @@ const state = {
   pendingFeedData: null,
   previewArticles: [],
   previewPageIndex: 0,
+  currentPage: 0,             // Current page (0-indexed) in the paginated article list
 };
 
 // ─── Initialization ─────────────────────────────────
@@ -622,6 +623,8 @@ function getArticleLanguageInfo(article) {
   return { isTraditionalChinese: true, languageName: '繁體中文' };
 }
 
+const ARTICLES_PAGE_SIZE = 5;
+
 function renderArticles(articles) {
   const settings = Store.getSettings();
   const readSet = Store.getReadSet();
@@ -637,6 +640,7 @@ function renderArticles(articles) {
     DOM.emptyState.classList.remove('hidden');
     DOM.noArticlesState.classList.add('hidden');
     DOM.articlesList.innerHTML = '';
+    DOM.articlesPageNav.classList.add('hidden');
     return;
   }
 
@@ -645,21 +649,31 @@ function renderArticles(articles) {
   if (articles.length === 0) {
     DOM.noArticlesState.classList.remove('hidden');
     DOM.articlesList.innerHTML = '';
+    DOM.articlesPageNav.classList.add('hidden');
     return;
   }
 
   DOM.noArticlesState.classList.add('hidden');
 
-  // Set view mode class
-  DOM.articlesList.className = `articles-list view-${settings.viewMode}`;
+  // Group into pages of 5, clamping state.currentPage to the valid range
+  const totalPages = Math.ceil(articles.length / ARTICLES_PAGE_SIZE);
+  if (state.currentPage >= totalPages) state.currentPage = totalPages - 1;
+  if (state.currentPage < 0) state.currentPage = 0;
 
-  // Render articles based on view mode
-  const html = articles.map(article => {
-    const isArticleRead = readSet.has(article.id);
-    return renderArticleCard(article, settings.viewMode, isArticleRead);
-  }).join('');
+  DOM.articlesList.className = 'articles-pages-inner';
 
-  DOM.articlesList.innerHTML = html;
+  let pagesHtml = '';
+  for (let p = 0; p < totalPages; p++) {
+    const pageArticles = articles.slice(p * ARTICLES_PAGE_SIZE, p * ARTICLES_PAGE_SIZE + ARTICLES_PAGE_SIZE);
+    const cardsHtml = pageArticles.map(article => {
+      const isArticleRead = readSet.has(article.id);
+      return renderArticleCard(article, settings.viewMode, isArticleRead);
+    }).join('');
+    pagesHtml += `<div class="articles-page"><div class="articles-list view-${settings.viewMode}">${cardsHtml}</div></div>`;
+  }
+  DOM.articlesList.innerHTML = pagesHtml;
+
+  applyArticlesPageTransform();
 
   // Bind article click events
   DOM.articlesList.querySelectorAll('.article-card').forEach(card => {
@@ -672,6 +686,24 @@ function renderArticles(articles) {
 
   // Auto-translate non-Traditional Chinese articles displayed in the main list view
   autoTranslateArticles(articles);
+}
+
+function applyArticlesPageTransform() {
+  const totalPages = DOM.articlesList.querySelectorAll('.articles-page').length;
+  DOM.articlesList.style.transform = `translateY(-${state.currentPage * 100}%)`;
+
+  DOM.articlesPageNav.classList.toggle('hidden', totalPages <= 1);
+  DOM.articlesPageIndicator.textContent = `${state.currentPage + 1} / ${totalPages}`;
+  DOM.articlesPrevPageBtn.disabled = state.currentPage <= 0;
+  DOM.articlesNextPageBtn.disabled = state.currentPage >= totalPages - 1;
+}
+
+function goToArticlesPage(delta) {
+  const totalPages = DOM.articlesList.querySelectorAll('.articles-page').length;
+  const newPage = state.currentPage + delta;
+  if (newPage < 0 || newPage >= totalPages) return;
+  state.currentPage = newPage;
+  applyArticlesPageTransform();
 }
 
 async function autoTranslateArticles(articles) {
