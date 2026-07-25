@@ -295,6 +295,121 @@ app.post('/api/translate', async (req, res) => {
   }
 });
 
+// ─── LINE Login Configuration ──────────────────────
+const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || 'REDACTED_LINE_CHANNEL_SECRET';
+const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || '';
+const DEFAULT_LINE_USER_ID = 'REDACTED_LINE_UID';
+
+/**
+ * POST /api/auth/line/login-uid
+ * Directly authenticate using a LINE UID (User ID)
+ */
+app.post('/api/auth/line/login-uid', async (req, res) => {
+  const { lineUid, displayName } = req.body || {};
+  const targetUid = (lineUid || DEFAULT_LINE_USER_ID).trim();
+
+  if (!targetUid) {
+    return res.status(400).json({ error: 'LINE User ID is required.' });
+  }
+
+  // Create or verify user in Firestore if enabled
+  if (db) {
+    try {
+      const userRef = db.collection('users').doc(targetUid);
+      const userDoc = await userRef.get();
+      if (!userDoc.exists) {
+        await userRef.set({
+          userId: targetUid,
+          authType: 'line',
+          displayName: displayName || `LINE User (${targetUid.slice(0, 8)})`,
+          createdAt: new Date().toISOString()
+        }, { merge: true });
+      }
+    } catch (err) {
+      console.warn('Firestore LINE user init error:', err.message);
+    }
+  }
+
+  return res.json({
+    success: true,
+    userId: targetUid,
+    authType: 'line',
+    displayName: displayName || `LINE User (${targetUid.slice(0, 8)})`
+  });
+});
+
+/**
+ * POST /api/auth/line/verify-token
+ * Verify LINE Access Token / ID Token and return user profile
+ */
+app.post('/api/auth/line/verify-token', async (req, res) => {
+  const { accessToken, idToken } = req.body || {};
+
+  if (!accessToken && !idToken) {
+    return res.status(400).json({ error: 'Access token or ID token required.' });
+  }
+
+  try {
+    let lineUid = '';
+    let displayName = '';
+    let pictureUrl = '';
+
+    if (accessToken) {
+      // Fetch user profile from LINE API
+      const profileResp = await fetch('https://api.line.me/v2/profile', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (!profileResp.ok) {
+        throw new Error(`LINE API returned ${profileResp.status}`);
+      }
+      const profile = await profileResp.json();
+      lineUid = profile.userId;
+      displayName = profile.displayName;
+      pictureUrl = profile.pictureUrl;
+    } else if (idToken) {
+      // Verify ID token via LINE OAuth API
+      const params = new URLSearchParams({ id_token: idToken, client_id: LINE_CHANNEL_ID });
+      const verifyResp = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params
+      });
+      if (!verifyResp.ok) {
+        throw new Error(`LINE token verify failed: ${verifyResp.status}`);
+      }
+      const tokenData = await verifyResp.json();
+      lineUid = tokenData.sub;
+      displayName = tokenData.name || '';
+      pictureUrl = tokenData.picture || '';
+    }
+
+    if (!lineUid) {
+      throw new Error('Unable to extract LINE User ID');
+    }
+
+    // Save/merge user metadata in Firestore
+    if (db) {
+      await db.collection('users').doc(lineUid).set({
+        userId: lineUid,
+        displayName: displayName || lineUid,
+        pictureUrl: pictureUrl || '',
+        authType: 'line',
+        lastLoginAt: new Date().toISOString()
+      }, { merge: true });
+    }
+
+    return res.json({
+      success: true,
+      userId: lineUid,
+      displayName: displayName || lineUid,
+      pictureUrl: pictureUrl || '',
+      authType: 'line'
+    });
+  } catch (err) {
+    return res.status(401).json({ error: `LINE authentication failed: ${err.message}` });
+  }
+});
+
 // ─── Multi-User Firestore Endpoints ────────────────
 
 /**

@@ -43,6 +43,26 @@ export function setUserId(newUserId) {
   }
 }
 
+export function getUserProfile() {
+  return load('ff_user_profile', {
+    userId: getUserId(),
+    displayName: 'LINE User',
+    authType: 'line'
+  });
+}
+
+export function setUserProfile(profile) {
+  if (profile && profile.userId) {
+    setUserId(profile.userId);
+    save('ff_user_profile', profile);
+  }
+}
+
+export function clearAuth() {
+  localStorage.removeItem(KEYS.USER_ID);
+  localStorage.removeItem('ff_user_profile');
+}
+
 function load(key, fallback) {
   try {
     const data = localStorage.getItem(key);
