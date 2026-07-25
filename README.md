@@ -1,63 +1,83 @@
-# 📡 FeedFlow - Mobile-First RSS Reader with Gemini AI
+# 📡 FeedFlow - Mobile-First RSS Reader with Gemini AI & LINE Login
 
 [![Cloud Run](https://img.shields.io/badge/Deployed%20on-Google%20Cloud%20Run-blue?logo=googlecloud)](https://feedflow-660825558664.asia-east1.run.app)
-[![Node.js](https://img.shields.io/badge/Node.js-v20-green?logo=nodedotjs)](https://nodejs.org)
+[![Firestore](https://img.shields.io/badge/Database-Google%20Firestore-orange?logo=firebase)](https://firebase.google.com/docs/firestore)
+[![LINE Login](https://img.shields.io/badge/Auth-LINE%20Login%20%2F%20LIFF-06C755?logo=line)](https://developers.line.biz)
 [![Gemini AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash-purple?logo=googlegemini)](https://ai.google.dev)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-**FeedFlow** 是一款主要針對手機瀏覽器設計的現代化 RSS 閱讀器，復刻經典 **Feedly Classic** 的簡潔高效體驗，並結合 **Gemini 2.5 Flash** 提供外文內容自動語系辨識與繁體中文翻譯。
+**FeedFlow** 是一款專為手機瀏覽器設計的現代化 RSS 閱讀器，復刻經典 **Feedly Classic** 的簡潔高效體驗，整合 **Google Firestore** 雲端多使用者資料庫、**LINE Login (LINE UID)** 帳號綁定、多國語言介面 (i18n)，並結合 **Gemini 2.5 Flash** 提供外文內容自動語系辨識與即時繁體中文翻譯。
 
-👉 **[立即體驗線上 Demo 網頁](https://feedflow-660825558664.asia-east1.run.app)**
+👉 **[立即體驗 FeedFlow 線上 Demo 網頁](https://feedflow-660825558664.asia-east1.run.app)**
 
 ---
 
-## ✨ 核心功能
+## ✨ 核心功能特色
 
-### 1. 📡 訂閱與資料夾管理
-- **RSS 自動探索**：輸入任何網站 URL 或 RSS 連結，系統會自動探索 Feed 並提供內容預覽。
-- **資料夾分組**：自由建立、重新命名與刪除資料夾（Collections），將訂閱源進行分類管理。
-- **側欄導航**：分類顯示未讀數量、支援展開/收合資料夾與快速刪除訂閱。
+### 1. 💬 LINE Login 註冊與身份驗證
+- **LINE UID 帳號綁定**：支援使用 **LINE User ID (UID)**（例如：`REDACTED_LINE_UID`）作為雲端身份辨識。
+- **LINE LIFF SDK 整合**：在 LINE App 內建瀏覽器環境開啟時自動進行連動認證。
+- **LINE OAuth 2.1 認證流**：提供標準 OAuth 2.1 Code Grant 重導向與 Callback 處理解析。
 
-### 2. 📰 多檢視閱讀模式 (4 View Modes)
+### 2. 🔥 Google Firestore 雲端資料庫與閱讀進度
+- **多租戶資料隔離**：每位使用者的 RSS 訂閱清單、分類資料夾、偏好設定均儲存在專屬 Firestore 路徑 (`users/{LINE_UID}/...`)。
+- **跨裝置閱讀進度記錄**：精確紀錄每個 Feed 的最新閱讀位置 (`lastReadArticleId`) 與所有已讀文章 ID 列表 (`readArticleIds`)。
+- **自動復原與抓取 (Auto-Hydration)**：重新部署或更換裝置時，系統從 Firestore 載入訂閱列表後自動在背景抓取並解析最新 RSS 文章。
+
+### 3. 🌐 語言識別與 Gemini 2.5 Flash 自動翻譯
+- **豐富 RSS 搜尋預覽**：搜尋或輸入 RSS 網址時，Gemini 2.5 Flash 會即時翻譯訂閱源標題、簡介以及**最新 3 篇範例文章**。
+- **主視窗卡片自動背景翻譯**：主列表瀏覽非繁體中文文章（如韓文、日文、英文、簡體中文）時，系統自動發送 Gemini 背景翻譯並即時更新卡片與 **`✨ 繁中`** 徽章。
+- **閱讀器雙向切換**：點擊文章閱讀時，提供「🌐 顯示原文 / ✨ 顯示 Gemini 繁中翻譯」一鍵切換按鈕。
+
+### 4. 📰 多檢視閱讀模式 (4 View Modes)
 - **Magazine View（雜誌模式）**：預設精美圖文摘要卡片，適合快讀資訊。
 - **List View（精簡列表）**：高密度顯示標題與時間，適合大批瀏覽。
 - **Title-Only View（純標題）**：極簡設計，專注於文章標題。
 - **Cards View（大圖卡片）**：以大圖為主的視覺卡片佈局。
 
-### 3. 🌐 語言識別與 Gemini AI 自動翻譯
-- **原文語系標註**：自動辨識文章語言（如英文 `EN`、日文 `JA`、簡體中文 `ZH-CN`、韓文 `KO` 等），並在卡片與閱讀器上顯示語言徽章。
-- **Gemini 2.5 Flash 自動翻譯**：非繁體中文內容自動使用 Google 經濟高效的 Gemini 2.5 Flash 模型翻譯標題與全文成繁體中文。
-- **雙向切換**：閱讀器內提供「🌐 顯示原文 / ✨ 顯示 Gemini 繁中翻譯」一鍵切換按鈕。
-- **本地快取**：翻譯結果快取於 `localStorage`，避免重複 API 請求。
-
-### 4. 📱 行動優化 UX/UI
-- **全屏沉浸閱讀器**：點擊文章順暢滑出，支援手機**右滑手勢返回**。
-- **已讀與未讀管理**：捲動/點擊自動更新已讀狀態、支援「一鍵全部標記已讀」。
-- **Premium 深色主題**：基於 Glassmorphism 毛玻璃質感與流暢微動畫設計。
+### 5. 🌍 多國語言介面 (i18n)
+- 支援 **繁體中文 (`zh-TW`)**、**英文 (`en`)**、**日本語 (`ja`)** 介面語言隨時切換。
+- 支援自由設定 Gemini 翻譯目標語言。
 
 ---
 
 ## 🛠️ 技術架構
 
-```
+```text
 feedflow/
-├── server.js           # Express 後端 (RSS 解析代理 + Gemini 翻譯 API + 靜態檔服務)
+├── server.js           # Express 後端 (RSS 解析 + Firestore SDK + Gemini 2.5 API + LINE Auth)
 ├── package.json         # Node.js ESM 專案設定
 ├── Dockerfile           # Multi-stage Docker 容器構建
 ├── public/
-│   ├── index.html       # Mobile-first SPA 主頁
+│   ├── index.html       # Mobile-first SPA 主頁 (包含 LINE Login Modal)
 │   ├── manifest.json    # PWA web app manifest
 │   ├── css/
-│   │   └── style.css    # Premium 深色主題 CSS
+│   │   └── style.css    # Premium 深色主題 CSS (Glassmorphism & LINE Theme)
 │   └── js/
-│       ├── app.js       # 前端 UI 控制邏輯
-│       ├── store.js     # localStorage 資料持久層
-│       └── api.js       # 後端 API 通訊模組
+│       ├── app.js       # 前端主控制邏輯 (i18n、自動翻譯、LIFF)
+│       ├── store.js     # localStorage + Firestore 雙層快取持久層
+│       ├── api.js       # 後端 REST API 與 LINE Auth 通訊模組
+│       └── i18n.js      # 多國語言字典 (zh-TW, en, ja)
 ```
 
-- **前端**：Vanilla HTML5 / CSS3 / ES Modules（無框架負擔，極速載入）
-- **後端**：Node.js 20, Express, `rss-parser`, `cheerio`
-- **AI 整合**：Google Gemini 2.5 Flash API (`https://generativelanguage.googleapis.com`)
-- **部署**：Google Cloud Run (asia-east1)
+- **前端**：Vanilla HTML5 / CSS3 / ES Modules / LINE LIFF SDK
+- **後端**：Node.js 20, Express, `@google-cloud/firestore`, `rss-parser`, `cheerio`
+- **資料庫**：Google Cloud Firestore (`users/{userId}/...`)
+- **AI 整合**：Google Gemini 2.5 Flash API
+- **身份驗證**：LINE Login OAuth 2.1 & LIFF SDK
+- **雲端部署**：Google Cloud Run (asia-east1)
+
+---
+
+## 🔑 LINE Login Channel 設定指引
+
+在 [LINE Developers Console](https://developers.line.biz/) 的 LINE Login Channel 設定中，請設定：
+
+- **Callback URL (Redirect URI)**：
+  ```text
+  https://feedflow-660825558664.asia-east1.run.app/api/auth/line/callback
+  ```
+- **Scope**：`profile`, `openid`
 
 ---
 
@@ -69,12 +89,13 @@ feedflow/
 npm install
 ```
 
-### 2. 設定環境變數（可選）
+### 2. 設定環境變數
 
-建立 `.env` 檔案或在終端機中設定 `GEMINI_API_KEY`（用於啟用 AI 翻譯）：
+建立 `.env` 檔案或在終端機中設定環境變數：
 
 ```bash
 export GEMINI_API_KEY="your-gemini-api-key"
+export LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET"
 export PORT=8080
 ```
 
@@ -84,7 +105,7 @@ export PORT=8080
 npm start
 ```
 
-打開瀏覽器存取 `http://localhost:8080` 即可開始測試。
+開啟瀏覽器存取 `http://localhost:8080` 即可開始測試。
 
 ---
 
@@ -95,10 +116,14 @@ npm start
 ```bash
 gcloud run deploy feedflow \
   --source . \
+  --project line-vertex \
   --region asia-east1 \
   --allow-unauthenticated \
   --port 8080 \
-  --set-env-vars GEMINI_API_KEY="your-gemini-api-key"
+  --memory 256Mi \
+  --cpu 1 \
+  --max-instances 3 \
+  --set-env-vars GEMINI_API_KEY="your-gemini-api-key",LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET"
 ```
 
 ---
