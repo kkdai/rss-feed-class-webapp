@@ -293,6 +293,34 @@ function bindEvents() {
   if (DOM.lineLoginModalBtn) DOM.lineLoginModalBtn.addEventListener('click', triggerLineOpenIdLogin);
   if (DOM.lineLogoutBtn) DOM.lineLogoutBtn.addEventListener('click', handleLineLogout);
 
+  // Article Pagination: swipe (touch), wheel (desktop), and prev/next buttons
+  let articlesTouchStartY = 0;
+  let articlesWheelLocked = false;
+
+  DOM.articlesContainer.addEventListener('touchstart', (e) => {
+    articlesTouchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  DOM.articlesContainer.addEventListener('touchend', (e) => {
+    const endY = e.changedTouches[0].clientY;
+    const diffY = articlesTouchStartY - endY;
+    if (Math.abs(diffY) > 40) {
+      goToArticlesPage(diffY > 0 ? 1 : -1);
+    }
+  }, { passive: true });
+
+  DOM.articlesContainer.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) < 10) return;
+    e.preventDefault();
+    if (articlesWheelLocked) return;
+    articlesWheelLocked = true;
+    goToArticlesPage(e.deltaY > 0 ? 1 : -1);
+    setTimeout(() => { articlesWheelLocked = false; }, 400);
+  }, { passive: false });
+
+  DOM.articlesPrevPageBtn.addEventListener('click', () => goToArticlesPage(-1));
+  DOM.articlesNextPageBtn.addEventListener('click', () => goToArticlesPage(1));
+
   // Article reader
   DOM.readerBackBtn.addEventListener('click', closeReader);
   DOM.readerOpenBtn.addEventListener('click', () => {
