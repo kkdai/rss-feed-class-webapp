@@ -18,9 +18,20 @@ function uid() {
 }
 
 export function getUserId() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('userId')) {
+      const paramUid = params.get('userId').trim();
+      if (paramUid) {
+        localStorage.setItem(KEYS.USER_ID, paramUid);
+        return paramUid;
+      }
+    }
+  } catch {}
+
   let userId = localStorage.getItem(KEYS.USER_ID);
   if (!userId) {
-    userId = 'usr_' + uid();
+    userId = 'default-user';
     localStorage.setItem(KEYS.USER_ID, userId);
   }
   return userId;
