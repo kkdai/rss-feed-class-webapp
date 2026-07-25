@@ -1120,6 +1120,26 @@ textarea::placeholder {
   background-color: rgba(248, 113, 113, 0.2);
 }
 
+.btn-line {
+  background-color: #06C755;
+  color: #ffffff;
+  font-weight: 600;
+  border: none;
+}
+
+.btn-line:hover:not(:disabled) {
+  background-color: #05b34c;
+  box-shadow: 0 0 12px rgba(6, 199, 85, 0.4);
+}
+
+.line-auth-card {
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
 /* ==========================================================================
    Feed Discovery
    ========================================================================== */

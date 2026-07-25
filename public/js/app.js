@@ -70,6 +70,17 @@ const DOM = {
   uiLanguageSelect: $('uiLanguageSelect'),
   targetLanguageSelect: $('targetLanguageSelect'),
   userIdDisplay: $('userIdDisplay'),
+  // LINE Login Elements
+  lineLoginBtnTop: $('lineLoginBtnTop'),
+  lineLoginModalBtn: $('lineLoginModalBtn'),
+  lineLoginModal: $('lineLoginModal'),
+  closeLineLoginModal: $('closeLineLoginModal'),
+  cancelLineLogin: $('cancelLineLogin'),
+  confirmLineLogin: $('confirmLineLogin'),
+  lineUidInput: $('lineUidInput'),
+  lineDisplayNameInput: $('lineDisplayNameInput'),
+  lineDisplayName: $('lineDisplayName'),
+  lineUidDisplay: $('lineUidDisplay'),
   // Confirm Modal
   confirmModal: $('confirmModal'),
   confirmTitle: $('confirmTitle'),
@@ -97,9 +108,13 @@ async function init() {
   bindEvents();
   applyViewMode();
   applyUiTranslations();
+  updateUserAccountBadge();
 
   renderSidebar();
   loadCurrentView();
+
+  // Try LIFF init in LINE browser
+  tryInitLiff();
 
   // Async Firestore multi-user sync in background
   try {
@@ -119,6 +134,46 @@ async function init() {
     }
   } catch (err) {
     console.warn('Firestore background sync note:', err.message);
+  }
+}
+
+function updateUserAccountBadge() {
+  const profile = Store.getUserProfile();
+  const userId = Store.getUserId();
+  if (DOM.userIdDisplay) {
+    DOM.userIdDisplay.textContent = `User ID: ${userId}`;
+  }
+  if (DOM.lineDisplayName) {
+    DOM.lineDisplayName.textContent = profile.displayName || 'LINE 登入';
+  }
+  if (DOM.lineUidDisplay) {
+    DOM.lineUidDisplay.textContent = `UID: ${userId}`;
+  }
+  if (DOM.lineLoginBtnTop) {
+    DOM.lineLoginBtnTop.textContent = userId.startsWith('U') ? `🟢 ${profile.displayName || userId.slice(0, 8)}` : '💬 LINE 登入';
+  }
+}
+
+async function tryInitLiff() {
+  if (window.liff) {
+    try {
+      if (window.liff.isInClient() && window.liff.isLoggedIn()) {
+        const profile = await window.liff.getProfile();
+        if (profile && profile.userId) {
+          const authRes = await API.loginWithLineUid(profile.userId, profile.displayName);
+          Store.setUserProfile(authRes);
+          updateUserAccountBadge();
+          const remoteData = await API.fetchUserData(profile.userId);
+          if (remoteData && remoteData.storage === 'firestore') {
+            Store.syncWithFirestore(remoteData);
+            renderSidebar();
+            loadCurrentView();
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('LIFF init note:', err.message);
+    }
   }
 }
 
@@ -157,6 +212,13 @@ function bindEvents() {
   DOM.cancelSettings.addEventListener('click', closeSettingsModal);
   DOM.confirmSettings.addEventListener('click', handleConfirmSettings);
   DOM.settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettingsModal);
+
+  // LINE Login Modal
+  if (DOM.lineLoginBtnTop) DOM.lineLoginBtnTop.addEventListener('click', openLineLoginModal);
+  if (DOM.lineLoginModalBtn) DOM.lineLoginModalBtn.addEventListener('click', openLineLoginModal);
+  if (DOM.closeLineLoginModal) DOM.closeLineLoginModal.addEventListener('click', closeLineLoginModal);
+  if (DOM.cancelLineLogin) DOM.cancelLineLogin.addEventListener('click', closeLineLoginModal);
+  if (DOM.confirmLineLogin) DOM.confirmLineLogin.addEventListener('click', handleConfirmLineLogin);
 
   // Article reader
   DOM.readerBackBtn.addEventListener('click', closeReader);
@@ -1119,6 +1181,54 @@ async function refreshFeeds() {
     showToast(`Refreshed ${successCount} feeds (${errorCount} errors)`, 'warning');
   } else {
     showToast(`Refreshed ${successCount} feeds`, 'success');
+  }
+}
+
+// ─── LINE Login Handlers ─────────────────────────────
+
+function openLineLoginModal() {
+  const currentUid = Store.getUserId();
+  DOM.lineUidInput.value = currentUid.startsWith('U') ? currentUid : 'REDACTED_LINE_UID';
+  DOM.lineLoginModal.classList.remove('hidden');
+}
+
+function closeLineLoginModal() {
+  DOM.lineLoginModal.classList.add('hidden');
+}
+
+async function handleConfirmLineLogin() {
+  const lineUid = DOM.lineUidInput.value.trim();
+  const displayName = DOM.lineDisplayNameInput.value.trim();
+
+  if (!lineUid) {
+    showToast('請輸入有效的 LINE User ID', 'error');
+    return;
+  }
+
+  try {
+    const authData = await API.loginWithLineUid(lineUid, displayName);
+    Store.setUserProfile({
+      userId: authData.userId,
+      displayName: authData.displayName,
+      authType: 'line'
+    });
+
+    updateUserAccountBadge();
+    closeLineLoginModal();
+    DOM.settingsModal.classList.add('hidden');
+
+    showToast(`成功切換為 LINE 帳號 (${authData.userId.slice(0, 8)}...)`, 'success');
+
+    // Sync new user's Firestore data
+    const remoteData = await API.fetchUserData(authData.userId);
+    if (remoteData && remoteData.storage === 'firestore') {
+      Store.syncWithFirestore(remoteData);
+      renderSidebar();
+      loadCurrentView();
+      refreshFeeds();
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
   }
 }
 
