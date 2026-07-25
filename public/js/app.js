@@ -1120,9 +1120,9 @@ async function previewFeed(feedUrl) {
             } else if (diffY < 0 && currentPage > 0) {
               currentPage--; // swipe down
             }
-            carouselInner.style.transform = \`translateY(-\${currentPage * 100}%)\`;
+            carouselInner.style.transform = `translateY(-${currentPage * 100}%)`;
             if (pageIndicator) {
-              pageIndicator.innerText = \`☝️ 往上滑動翻頁 (\${currentPage + 1}/\${totalPages})\`;
+              pageIndicator.innerText = `☝️ 往上滑動翻頁 (${currentPage + 1}/${totalPages})`;
               pageIndicator.style.animation = 'none'; // Stop pulse after first interaction
             }
           }
