@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0c0c14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="description" content="FeedFlow - A premium RSS reader inspired by Feedly Classic">
+  <title>FeedFlow - RSS Reader</title>
+  <link rel="manifest" href="/manifest.json">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
+</head>
+<body>
+  <!-- Overlay for sidebar -->
+  <div id="overlay" class="overlay"></div>
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="app-logo">
+        <span class="logo-icon">📡</span>
+        <span class="logo-text">FeedFlow</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav" id="sidebarNav">
+      <!-- Smart Views -->
+      <div class="nav-section">
+        <button class="nav-item active" data-view="all" id="navAll">
+          <span class="nav-icon">📰</span>
+          <span class="nav-label">All Articles</span>
+          <span class="nav-badge" id="allCount"></span>
+        </button>
+        <button class="nav-item" data-view="today" id="navToday">
+          <span class="nav-icon">⚡</span>
+          <span class="nav-label">Today</span>
+          <span class="nav-badge" id="todayCount"></span>
+        </button>
+      </div>
+
+      <!-- Folders Section -->
+      <div class="nav-section" id="foldersSection">
+        <div class="nav-section-header">
+          <span>Folders</span>
+          <button class="icon-btn icon-btn-sm" id="addFolderBtn" title="Add Folder">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+          </button>
+        </div>
+        <div id="foldersList">
+          <!-- Dynamically generated -->
+        </div>
+      </div>
+
+      <!-- Uncategorized Feeds -->
+      <div class="nav-section" id="uncategorizedSection" style="display:none">
+        <div class="nav-section-header">
+          <span>Feeds</span>
+        </div>
+        <div id="uncategorizedList">
+          <!-- Dynamically generated -->
+        </div>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="sidebar-btn" id="addFeedBtnSidebar">
+        <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+        <span>Add Feed</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main id="mainContent" class="main-content">
+    <!-- Top Bar -->
+    <header class="top-bar">
+      <button class="icon-btn" id="menuBtn" aria-label="Menu">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1 class="top-bar-title" id="currentViewTitle">All Articles</h1>
+      <div class="top-bar-actions">
+        <button class="icon-btn" id="viewModeBtn" title="View Mode" aria-label="Change view">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        </button>
+        <button class="icon-btn" id="markAllReadBtn" title="Mark All Read" aria-label="Mark all as read">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+        </button>
+        <button class="icon-btn" id="refreshBtn" title="Refresh" aria-label="Refresh feeds">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- View Mode Dropdown -->
+    <div id="viewModeDropdown" class="dropdown hidden">
+      <button class="dropdown-item active" data-view-mode="magazine">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="4" rx="1"/><rect x="2" y="11" width="9" height="10" rx="1"/><rect x="15" y="11" width="7" height="4" rx="1"/><rect x="15" y="19" width="7" height="2" rx="1"/></svg>
+        <span>Magazine</span>
+      </button>
+      <button class="dropdown-item" data-view-mode="list">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+        <span>List</span>
+      </button>
+      <button class="dropdown-item" data-view-mode="title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        <span>Title Only</span>
+      </button>
+      <button class="dropdown-item" data-view-mode="cards">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>
+        <span>Cards</span>
+      </button>
+    </div>
+
+    <!-- Articles Container -->
+    <div id="articlesContainer" class="articles-container">
+      <!-- Loading State -->
+      <div id="loadingState" class="state-message hidden">
+        <div class="spinner"></div>
+        <p>Loading articles...</p>
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyState" class="state-message">
+        <div class="empty-icon">📡</div>
+        <h2>Welcome to FeedFlow</h2>
+        <p>Add your first RSS feed to get started</p>
+        <button class="btn btn-primary" id="addFeedBtnEmpty">
+          <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/></svg>
+          Add Feed
+        </button>
+      </div>
+
+      <!-- No Articles State -->
+      <div id="noArticlesState" class="state-message hidden">
+        <div class="empty-icon">✨</div>
+        <h2>All caught up!</h2>
+        <p>No unread articles in this view</p>
+      </div>
+
+      <!-- Articles List -->
+      <div id="articlesList" class="articles-list view-magazine"></div>
+    </div>
+  </main>
+
+  <!-- Article Reader Panel -->
+  <div id="articleReader" class="article-reader">
+    <header class="reader-header">
+      <button class="icon-btn" id="readerBackBtn" aria-label="Back">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+      </button>
+      <div class="reader-source" id="readerSource"></div>
+      <div class="reader-actions">
+        <button class="icon-btn" id="readerOpenBtn" title="Open in browser" aria-label="Open in browser">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          </button>
+      </div>
+    </header>
+    <article class="reader-content" id="readerContent">
+      <!-- Article content dynamically inserted -->
+    </article>
+  </div>
+
+  <!-- Add Feed Modal -->
+  <div id="addFeedModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Add Feed</h2>
+        <button class="icon-btn modal-close" id="closeAddFeedModal" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group">
+          <label for="feedUrlInput">Feed or Website URL</label>
+          <div class="input-with-btn">
+            <input type="url" id="feedUrlInput" placeholder="https://example.com/feed" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <button class="btn btn-primary btn-sm" id="discoverFeedBtn">Search</button>
+          </div>
+        </div>
+
+        <!-- Discovery Results -->
+        <div id="feedDiscoveryResults" class="discovery-results hidden"></div>
+
+        <!-- Feed Preview -->
+        <div id="feedPreview" class="feed-preview hidden"></div>
+
+        <!-- Folder Selection -->
+        <div class="input-group" id="folderSelectGroup" style="display:none">
+          <label for="folderSelect">Add to Folder</label>
+          <select id="folderSelect">
+            <option value="">— No Folder —</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer" id="addFeedFooter" style="display:none">
+        <button class="btn btn-secondary" id="cancelAddFeed">Cancel</button>
+        <button class="btn btn-primary" id="confirmAddFeed">Subscribe</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Folder Modal -->
+  <div id="addFolderModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2>New Folder</h2>
+        <button class="icon-btn modal-close" id="closeAddFolderModal" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="input-group">
+          <label for="folderNameInput">Folder Name</label>
+          <input type="text" id="folderNameInput" placeholder="e.g. Tech, News, Design" autocomplete="off">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="cancelAddFolder">Cancel</button>
+        <button class="btn btn-primary" id="confirmAddFolder">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Confirm Dialog Modal -->
+  <div id="confirmModal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content modal-sm">
+      <div class="modal-header">
+        <h2 id="confirmTitle">Confirm</h2>
+      </div>
+      <div class="modal-body">
+        <p id="confirmMessage"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="confirmCancel">Cancel</button>
+        <button class="btn btn-danger" id="confirmOk">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <!-- Single entry point: app.js imports store.js and api.js -->
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
