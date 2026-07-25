@@ -109,6 +109,13 @@ async function init() {
       applyUiTranslations();
       renderSidebar();
       loadCurrentView();
+
+      // If feeds exist but articles are missing, automatically fetch RSS feeds in background
+      const feeds = Store.getFeeds();
+      const needsHydration = feeds.some(f => Store.getArticlesForFeed(f.id).length === 0);
+      if (needsHydration && !state.isRefreshing) {
+        refreshFeeds();
+      }
     }
   } catch (err) {
     console.warn('Firestore background sync note:', err.message);
@@ -354,11 +361,14 @@ function renderSidebar() {
       e.stopPropagation();
       const feedId = btn.dataset.feedId;
       const feed = Store.getFeed(feedId);
-      showConfirm(`Remove "${feed?.title || 'this feed'}"?`, 'This will remove the feed and its cached articles.', () => {
+      const userId = Store.getUserId();
+      const lang = Store.getSettings().uiLanguage || 'zh-TW';
+      showConfirm(t('removeFeedConfirmTitle', lang), t('removeFeedConfirmMsg', lang), () => {
         Store.removeFeed(feedId);
+        API.saveUserSubscription(userId, { id: feedId }, 'delete').catch(err => console.warn('Firestore feed delete error:', err));
         renderSidebar();
         if (state.currentView === 'feed:' + feedId) navigateTo('all');
-        showToast('Feed removed', 'info');
+        showToast(t('feedRemoved', lang), 'info');
       });
     });
   });
@@ -369,11 +379,14 @@ function renderSidebar() {
       e.preventDefault();
       const folderId = el.dataset.view.replace('folder:', '');
       const folder = Store.getFolders().find(f => f.id === folderId);
-      showConfirm(`Delete folder "${folder?.name}"?`, 'Feeds will be moved to uncategorized.', () => {
+      const userId = Store.getUserId();
+      const lang = Store.getSettings().uiLanguage || 'zh-TW';
+      showConfirm(t('deleteFolderConfirmTitle', lang), t('deleteFolderConfirmMsg', lang), () => {
         Store.deleteFolder(folderId);
+        API.saveUserFolder(userId, { id: folderId }, 'delete').catch(err => console.warn('Firestore folder delete error:', err));
         renderSidebar();
         if (state.currentView === 'folder:' + folderId) navigateTo('all');
-        showToast('Folder deleted', 'info');
+        showToast(t('folderDeleted', lang), 'info');
       });
     });
   });
