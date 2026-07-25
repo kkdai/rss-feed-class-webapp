@@ -97,6 +97,7 @@ npm install
 export GEMINI_API_KEY="your-gemini-api-key"
 export LINE_CHANNEL_ID="REDACTED_LINE_CHANNEL_ID"
 export LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET"
+export LINE_LIFF_ID="REDACTED_LIFF_ID"
 export PORT=8080
 ```
 
@@ -124,7 +125,7 @@ gcloud run deploy feedflow \
   --memory 256Mi \
   --cpu 1 \
   --max-instances 3 \
-  --set-env-vars GEMINI_API_KEY="your-gemini-api-key",LINE_CHANNEL_ID="REDACTED_LINE_CHANNEL_ID",LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET"
+  --set-env-vars GEMINI_API_KEY="your-gemini-api-key",LINE_CHANNEL_ID="REDACTED_LINE_CHANNEL_ID",LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET",LINE_LIFF_ID="REDACTED_LIFF_ID"
 ```
 
 ---
