@@ -6,7 +6,7 @@ import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Firestore } from '@google-cloud/firestore';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleAuth } from 'google-auth-library';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,20 +28,15 @@ try {
   console.warn('Firestore DB initialization warning:', err.message);
 }
 
-// Initialize Vertex AI Gemini Client using Cloud Run Service Account Self-Identity (ADC)
-let aiClient = null;
+// Initialize Vertex AI Auth Client using Cloud Run Service Account Self-Identity (ADC)
+let googleAuth = null;
 try {
-  const gcpProject = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex';
-  const gcpLocation = process.env.GCP_LOCATION || 'asia-east1';
-  aiClient = new GoogleGenAI({
-    vertexai: {
-      project: gcpProject,
-      location: gcpLocation,
-    }
+  googleAuth = new GoogleAuth({
+    scopes: ['https://www.googleapis.com/auth/cloud-platform']
   });
-  console.log(`Vertex AI client initialized with self-identity (ADC) for project=${gcpProject}, location=${gcpLocation}`);
+  console.log('GoogleAuth initialized for Vertex AI self-identity (ADC).');
 } catch (err) {
-  console.warn('Vertex AI self-identity init warning:', err.message);
+  console.warn('GoogleAuth self-identity init warning:', err.message);
 }
 
 const parser = new Parser({
@@ -281,18 +276,41 @@ ${titleToTranslate || ''}
 Content to translate:
 ${textToTranslate || ''}`;
 
-  // 1. Try Vertex AI with Cloud Run Service Account Self-Identity (ADC)
-  if (aiClient) {
+  // 1. Try Vertex AI REST API with Cloud Run Service Account Self-Identity (ADC)
+  if (googleAuth) {
     try {
-      const response = await aiClient.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: {
-          responseMimeType: 'application/json',
+      const client = await googleAuth.getClient();
+      const tokenRes = await client.getAccessToken();
+      const token = tokenRes.token;
+      if (token) {
+        const project = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex';
+        const location = 'us-central1'; // Vertex AI Gemini 2.5 models are available in us-central1 or global
+        const model = 'gemini-2.5-flash';
+        const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`;
+
+        const vertexRes = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+              responseMimeType: 'application/json',
+            }
+          })
+        });
+
+        if (vertexRes.ok) {
+          const data = await vertexRes.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}';
+          return JSON.parse(rawText);
+        } else {
+          const errText = await vertexRes.text();
+          console.warn(`Vertex AI REST API note (status ${vertexRes.status}): ${errText}`);
         }
-      });
-      const rawText = response.text || '{}';
-      return JSON.parse(rawText);
+      }
     } catch (err) {
       console.warn('Vertex AI self-identity generation note, fallback to API key if available:', err.message);
     }
