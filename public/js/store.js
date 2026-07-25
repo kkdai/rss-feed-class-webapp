@@ -10,10 +10,26 @@ const KEYS = {
   READ: 'ff_read',
   SETTINGS: 'ff_settings',
   TRANSLATIONS: 'ff_translations',
+  USER_ID: 'ff_user_id',
 };
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+export function getUserId() {
+  let userId = localStorage.getItem(KEYS.USER_ID);
+  if (!userId) {
+    userId = 'usr_' + uid();
+    localStorage.setItem(KEYS.USER_ID, userId);
+  }
+  return userId;
+}
+
+export function setUserId(newUserId) {
+  if (newUserId) {
+    localStorage.setItem(KEYS.USER_ID, newUserId);
+  }
 }
 
 function load(key, fallback) {
@@ -211,6 +227,8 @@ const DEFAULT_SETTINGS = {
   density: 'comfortable', // comfortable, compact
   showReadArticles: true,
   markReadOnScroll: false,
+  uiLanguage: 'zh-TW', // 'zh-TW', 'en', 'ja'
+  targetLanguage: 'zh-TW', // 'zh-TW', 'en', 'ja'
 };
 
 export function getSettings() {
@@ -224,7 +242,29 @@ export function updateSettings(updates) {
   return settings;
 }
 
-// ── Utilities ──────────────────────────────────────
+// ── Utilities & Firestore Sync ──────────────────────
+
+export function syncWithFirestore(userData) {
+  if (!userData) return;
+  if (userData.settings) {
+    updateSettings(userData.settings);
+  }
+  if (userData.folders && userData.folders.length > 0) {
+    save(KEYS.FOLDERS, userData.folders);
+  }
+  if (userData.feeds && userData.feeds.length > 0) {
+    save(KEYS.FEEDS, userData.feeds);
+  }
+  if (userData.readStates) {
+    const allReadIds = new Set(getReadSet());
+    Object.values(userData.readStates).forEach(st => {
+      if (st.readArticleIds && Array.isArray(st.readArticleIds)) {
+        st.readArticleIds.forEach(id => allReadIds.add(id));
+      }
+    });
+    save(KEYS.READ, [...allReadIds]);
+  }
+}
 
 export function clearAllData() {
   Object.values(KEYS).forEach(k => localStorage.removeItem(k));

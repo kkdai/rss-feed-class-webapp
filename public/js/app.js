@@ -5,6 +5,7 @@
 
 import * as Store from './store.js';
 import * as API from './api.js';
+import { t } from './i18n.js';
 
 // ─── DOM References ─────────────────────────────────
 
@@ -21,6 +22,7 @@ const DOM = {
   viewModeDropdown: $('viewModeDropdown'),
   markAllReadBtn: $('markAllReadBtn'),
   refreshBtn: $('refreshBtn'),
+  settingsBtn: $('settingsBtn'),
   articlesContainer: $('articlesContainer'),
   articlesList: $('articlesList'),
   loadingState: $('loadingState'),
@@ -60,6 +62,14 @@ const DOM = {
   folderNameInput: $('folderNameInput'),
   cancelAddFolder: $('cancelAddFolder'),
   confirmAddFolder: $('confirmAddFolder'),
+  // Settings Modal
+  settingsModal: $('settingsModal'),
+  closeSettingsModal: $('closeSettingsModal'),
+  cancelSettings: $('cancelSettings'),
+  confirmSettings: $('confirmSettings'),
+  uiLanguageSelect: $('uiLanguageSelect'),
+  targetLanguageSelect: $('targetLanguageSelect'),
+  userIdDisplay: $('userIdDisplay'),
   // Confirm Modal
   confirmModal: $('confirmModal'),
   confirmTitle: $('confirmTitle'),
@@ -82,11 +92,27 @@ const state = {
 
 // ─── Initialization ─────────────────────────────────
 
-function init() {
+async function init() {
+  const userId = Store.getUserId();
   bindEvents();
   applyViewMode();
+  applyUiTranslations();
+
   renderSidebar();
   loadCurrentView();
+
+  // Async Firestore multi-user sync in background
+  try {
+    const remoteData = await API.fetchUserData(userId);
+    if (remoteData && remoteData.storage === 'firestore') {
+      Store.syncWithFirestore(remoteData);
+      applyUiTranslations();
+      renderSidebar();
+      loadCurrentView();
+    }
+  } catch (err) {
+    console.warn('Firestore background sync note:', err.message);
+  }
 }
 
 // ─── Event Binding ──────────────────────────────────
@@ -117,6 +143,13 @@ function bindEvents() {
   // Actions
   DOM.markAllReadBtn.addEventListener('click', markAllAsRead);
   DOM.refreshBtn.addEventListener('click', refreshFeeds);
+  DOM.settingsBtn.addEventListener('click', openSettingsModal);
+
+  // Settings Modal
+  DOM.closeSettingsModal.addEventListener('click', closeSettingsModal);
+  DOM.cancelSettings.addEventListener('click', closeSettingsModal);
+  DOM.confirmSettings.addEventListener('click', handleConfirmSettings);
+  DOM.settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettingsModal);
 
   // Article reader
   DOM.readerBackBtn.addEventListener('click', closeReader);
@@ -163,6 +196,67 @@ function bindEvents() {
       closeReader();
     }
   }, { passive: true });
+}
+
+// ─── Settings Modal & UI Translation ────────────────
+
+function applyUiTranslations() {
+  const settings = Store.getSettings();
+  const lang = settings.uiLanguage || 'zh-TW';
+
+  if (DOM.navAll) DOM.navAll.querySelector('.nav-label').textContent = t('allArticles', lang);
+  if (DOM.navToday) DOM.navToday.querySelector('.nav-label').textContent = t('today', lang);
+  
+  const foldersHeader = $('foldersSection')?.querySelector('.nav-section-header span');
+  if (foldersHeader) foldersHeader.textContent = t('folders', lang);
+
+  const feedsHeader = $('uncategorizedSection')?.querySelector('.nav-section-header span');
+  if (feedsHeader) feedsHeader.textContent = t('feeds', lang);
+
+  if (DOM.addFeedBtnSidebar) DOM.addFeedBtnSidebar.querySelector('span').textContent = t('addFeed', lang);
+  if (DOM.addFeedBtnEmpty) DOM.addFeedBtnEmpty.querySelector('span').textContent = t('addFeed', lang);
+
+  const settingsTitle = $('settingsModalTitle');
+  if (settingsTitle) settingsTitle.textContent = t('settingsTitle', lang);
+
+  if ($('lblUiLanguage')) $('lblUiLanguage').textContent = t('uiLanguage', lang);
+  if ($('lblTargetLanguage')) $('lblTargetLanguage').textContent = t('targetLanguage', lang);
+
+  if (DOM.cancelSettings) DOM.cancelSettings.textContent = t('cancel', lang);
+  if (DOM.confirmSettings) DOM.confirmSettings.textContent = t('save', lang);
+}
+
+function openSettingsModal() {
+  const settings = Store.getSettings();
+  const userId = Store.getUserId();
+
+  DOM.userIdDisplay.textContent = `User ID: ${userId}`;
+  DOM.uiLanguageSelect.value = settings.uiLanguage || 'zh-TW';
+  DOM.targetLanguageSelect.value = settings.targetLanguage || 'zh-TW';
+
+  DOM.settingsModal.classList.remove('hidden');
+}
+
+function closeSettingsModal() {
+  DOM.settingsModal.classList.add('hidden');
+}
+
+async function handleConfirmSettings() {
+  const uiLanguage = DOM.uiLanguageSelect.value;
+  const targetLanguage = DOM.targetLanguageSelect.value;
+  const userId = Store.getUserId();
+
+  const newSettings = Store.updateSettings({ uiLanguage, targetLanguage });
+
+  // Sync to Firestore
+  API.saveUserSettings(userId, newSettings).catch(err => console.warn('Firestore settings save error:', err));
+
+  closeSettingsModal();
+  applyUiTranslations();
+  renderSidebar();
+  loadCurrentView();
+
+  showToast(t('settingsTitle', uiLanguage) + ' ' + t('save', uiLanguage), 'success');
 }
 
 // ─── Sidebar ────────────────────────────────────────
@@ -586,7 +680,8 @@ async function openArticle(article) {
   // Auto-fetch translation if non-Traditional Chinese and not translated yet
   if (isNonTraditionalChinese && !translation) {
     try {
-      const res = await API.translateArticle(article.title, article.content || article.summary, article.languageName);
+      const targetLang = Store.getSettings().targetLanguage || 'zh-TW';
+      const res = await API.translateArticle(article.title, article.content || article.summary, article.languageName, targetLang);
       if (res && res.translatedTitle) {
         translation = {
           translatedTitle: res.translatedTitle,
@@ -595,7 +690,6 @@ async function openArticle(article) {
         Store.saveTranslation(article.id, translation);
         if (state.currentArticle?.id === article.id) {
           renderReaderBody();
-          // Also update card in main view
           loadCurrentView();
         }
       }
@@ -701,6 +795,25 @@ async function previewFeed(feedUrl) {
     state.pendingFeedUrl = feedUrl;
     state.pendingFeedData = feedData;
 
+    const settings = Store.getSettings();
+    const targetLang = settings.targetLanguage || 'zh-TW';
+
+    let displayTitle = feedData.title;
+    let displayDesc = feedData.description || '';
+
+    // If feed preview is in foreign language, translate preview using Gemini 2.5 Flash
+    if (displayTitle || displayDesc) {
+      try {
+        const transRes = await API.translateArticle(displayTitle, displayDesc, 'Feed Preview', targetLang);
+        if (transRes && transRes.translatedTitle) {
+          displayTitle = `${transRes.translatedTitle} (${feedData.title})`;
+          displayDesc = transRes.translatedContent || displayDesc;
+        }
+      } catch (err) {
+        console.warn('Feed preview translation skipped:', err.message);
+      }
+    }
+
     const itemCount = feedData.items?.length || 0;
     DOM.feedPreview.innerHTML = `
       <div class="feed-preview-card">
@@ -708,8 +821,8 @@ async function previewFeed(feedUrl) {
           <img class="feed-preview-favicon" src="${escAttr(API.getFaviconUrl(feedData.link || feedUrl))}"
                alt="" onerror="this.style.display='none'">
           <div>
-            <h3 class="feed-preview-title">${escHtml(feedData.title)}</h3>
-            <p class="feed-preview-desc">${escHtml(truncate(feedData.description || '', 120))}</p>
+            <h3 class="feed-preview-title">${escHtml(displayTitle)}</h3>
+            <p class="feed-preview-desc">${escHtml(truncate(displayDesc, 120))}</p>
           </div>
         </div>
         <div class="feed-preview-stats">
@@ -731,6 +844,7 @@ async function handleConfirmAddFeed() {
 
   const feedData = state.pendingFeedData;
   const folderId = DOM.folderSelect.value;
+  const userId = Store.getUserId();
 
   const feed = Store.addFeed({
     title: feedData.title,
@@ -747,17 +861,22 @@ async function handleConfirmAddFeed() {
     return;
   }
 
-  // Save articles
+  // Save articles locally
   if (feedData.items?.length > 0) {
     Store.saveArticlesForFeed(feed.id, feedData.items);
   }
 
   Store.updateFeed(feed.id, { lastFetchedAt: Date.now() });
 
+  // Sync to Firestore multi-user DB
+  API.saveUserSubscription(userId, feed, 'save').catch(err => console.warn('Firestore sub sync error:', err));
+
   closeAddFeedModal();
   renderSidebar();
   loadCurrentView();
-  showToast(`Subscribed to "${feed.title}"`, 'success');
+  
+  const lang = Store.getSettings().uiLanguage || 'zh-TW';
+  showToast(t('subscribedTo', lang) + ` "${feed.title}"`, 'success');
 }
 
 // ─── Folder Management ──────────────────────────────
@@ -774,15 +893,20 @@ function closeAddFolderModal() {
 
 function handleConfirmAddFolder() {
   const name = DOM.folderNameInput.value.trim();
+  const userId = Store.getUserId();
+  const lang = Store.getSettings().uiLanguage || 'zh-TW';
+
   if (!name) {
-    showToast('Please enter a folder name', 'error');
+    showToast(t('folderName', lang), 'error');
     return;
   }
 
-  Store.createFolder(name);
+  const folder = Store.createFolder(name);
+  API.saveUserFolder(userId, folder, 'save').catch(err => console.warn('Firestore folder sync error:', err));
+
   closeAddFolderModal();
   renderSidebar();
-  showToast(`Folder "${name}" created`, 'success');
+  showToast(t('folderCreated', lang), 'success');
 }
 
 // ─── Mark All Read ──────────────────────────────────
@@ -790,6 +914,8 @@ function handleConfirmAddFolder() {
 function markAllAsRead() {
   let articles = [];
   const view = state.currentView;
+  const userId = Store.getUserId();
+  const lang = Store.getSettings().uiLanguage || 'zh-TW';
 
   if (view === 'all') {
     articles = Store.getAllArticles();
@@ -807,9 +933,22 @@ function markAllAsRead() {
 
   const ids = articles.map(a => a.id);
   Store.markMultipleAsRead(ids);
+
+  // Group read articles by feedId and sync read position / read states to Firestore
+  const feeds = Store.getFeeds();
+  feeds.forEach(feed => {
+    const feedArticles = Store.getArticlesForFeed(feed.id);
+    const readSet = Store.getReadSet();
+    const readIds = feedArticles.filter(a => readSet.has(a.id)).map(a => a.id);
+    const lastRead = feedArticles[0]?.id || '';
+    if (readIds.length > 0) {
+      API.saveUserReadState(userId, feed.id, lastRead, readIds).catch(err => console.warn('Firestore read state sync error:', err));
+    }
+  });
+
   renderSidebar();
   loadCurrentView();
-  showToast('All marked as read', 'success');
+  showToast(t('allMarkedRead', lang), 'success');
 }
 
 // ─── Refresh Feeds ──────────────────────────────────

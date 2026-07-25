@@ -50,21 +50,64 @@ export function getFaviconUrl(siteUrl) {
 }
 
 /**
- * Translate article title and content to Traditional Chinese via Gemini 2.5 Flash
+ * Translate article title and content using Gemini 2.5 Flash
  * @param {string} title
  * @param {string} content
  * @param {string} languageName
+ * @param {string} targetLanguage
  * @returns {Promise<{translatedTitle: string, translatedContent: string, languageName: string}>}
  */
-export async function translateArticle(title, content, languageName) {
+export async function translateArticle(title, content, languageName, targetLanguage = 'zh-TW') {
   const res = await fetch('/api/translate', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, content, languageName })
+    body: JSON.stringify({ title, content, languageName, targetLanguage })
   });
   const data = await res.json();
   if (!res.ok) {
     throw new Error(data.error || 'Translation failed');
   }
   return data;
+}
+
+// ─── Multi-User Firestore REST API Client ────────────
+
+export async function fetchUserData(userId) {
+  return request('/api/user/data', { userId });
+}
+
+export async function saveUserSettings(userId, settings) {
+  const res = await fetch('/api/user/settings', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, settings })
+  });
+  return res.json();
+}
+
+export async function saveUserFolder(userId, folder, action = 'save') {
+  const res = await fetch('/api/user/folder', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, folder, action })
+  });
+  return res.json();
+}
+
+export async function saveUserSubscription(userId, feed, action = 'save') {
+  const res = await fetch('/api/user/subscription', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, feed, action })
+  });
+  return res.json();
+}
+
+export async function saveUserReadState(userId, feedId, lastReadArticleId, readArticleIds) {
+  const res = await fetch('/api/user/read-state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, feedId, lastReadArticleId, readArticleIds })
+  });
+  return res.json();
 }
