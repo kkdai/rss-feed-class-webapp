@@ -1,4 +1,6 @@
 import express from 'express';
+import cookieParser from 'cookie-parser';
+import session from 'express-session';
 import Parser from 'rss-parser';
 import * as cheerio from 'cheerio';
 import path from 'path';
@@ -38,6 +40,17 @@ const parser = new Parser({
 
 // Middleware
 app.use(express.json());
+app.use(cookieParser());
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'REDACTED_SESSION_SECRET',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 30 * 24 * 60 * 60 * 1000,
+    httpOnly: true,
+    sameSite: 'lax'
+  }
+}));
 app.use(express.static(path.join(__dirname, 'public')));
 
 /**
@@ -295,124 +308,41 @@ app.post('/api/translate', async (req, res) => {
   }
 });
 
-// ─── LINE Login Configuration ──────────────────────
+// ─── LINE OpenID Connect & Session ────────────────
 const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || 'REDACTED_LINE_CHANNEL_SECRET';
 const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || '';
 const DEFAULT_LINE_USER_ID = 'REDACTED_LINE_UID';
 
 /**
- * POST /api/auth/line/login-uid
- * Directly authenticate using a LINE UID (User ID)
+ * GET /api/auth/me
+ * Check current authenticated session
  */
-app.post('/api/auth/line/login-uid', async (req, res) => {
-  const { lineUid, displayName } = req.body || {};
-  const targetUid = (lineUid || DEFAULT_LINE_USER_ID).trim();
-
-  if (!targetUid) {
-    return res.status(400).json({ error: 'LINE User ID is required.' });
+app.get('/api/auth/me', (req, res) => {
+  if (req.session && req.session.user) {
+    return res.json({ authenticated: true, user: req.session.user });
   }
-
-  // Create or verify user in Firestore if enabled
-  if (db) {
-    try {
-      const userRef = db.collection('users').doc(targetUid);
-      const userDoc = await userRef.get();
-      if (!userDoc.exists) {
-        await userRef.set({
-          userId: targetUid,
-          authType: 'line',
-          displayName: displayName || `LINE User (${targetUid.slice(0, 8)})`,
-          createdAt: new Date().toISOString()
-        }, { merge: true });
-      }
-    } catch (err) {
-      console.warn('Firestore LINE user init error:', err.message);
-    }
-  }
-
-  return res.json({
-    success: true,
-    userId: targetUid,
-    authType: 'line',
-    displayName: displayName || `LINE User (${targetUid.slice(0, 8)})`
-  });
+  return res.json({ authenticated: false });
 });
 
 /**
- * POST /api/auth/line/verify-token
- * Verify LINE Access Token / ID Token and return user profile
+ * POST /api/auth/logout
+ * Destroy authenticated session
  */
-app.post('/api/auth/line/verify-token', async (req, res) => {
-  const { accessToken, idToken } = req.body || {};
-
-  if (!accessToken && !idToken) {
-    return res.status(400).json({ error: 'Access token or ID token required.' });
-  }
-
-  try {
-    let lineUid = '';
-    let displayName = '';
-    let pictureUrl = '';
-
-    if (accessToken) {
-      // Fetch user profile from LINE API
-      const profileResp = await fetch('https://api.line.me/v2/profile', {
-        headers: { Authorization: `Bearer ${accessToken}` }
-      });
-      if (!profileResp.ok) {
-        throw new Error(`LINE API returned ${profileResp.status}`);
-      }
-      const profile = await profileResp.json();
-      lineUid = profile.userId;
-      displayName = profile.displayName;
-      pictureUrl = profile.pictureUrl;
-    } else if (idToken) {
-      // Verify ID token via LINE OAuth API
-      const params = new URLSearchParams({ id_token: idToken, client_id: LINE_CHANNEL_ID });
-      const verifyResp = await fetch('https://api.line.me/oauth2/v2.1/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: params
-      });
-      if (!verifyResp.ok) {
-        throw new Error(`LINE token verify failed: ${verifyResp.status}`);
-      }
-      const tokenData = await verifyResp.json();
-      lineUid = tokenData.sub;
-      displayName = tokenData.name || '';
-      pictureUrl = tokenData.picture || '';
-    }
-
-    if (!lineUid) {
-      throw new Error('Unable to extract LINE User ID');
-    }
-
-    // Save/merge user metadata in Firestore
-    if (db) {
-      await db.collection('users').doc(lineUid).set({
-        userId: lineUid,
-        displayName: displayName || lineUid,
-        pictureUrl: pictureUrl || '',
-        authType: 'line',
-        lastLoginAt: new Date().toISOString()
-      }, { merge: true });
-    }
-
-    return res.json({
-      success: true,
-      userId: lineUid,
-      displayName: displayName || lineUid,
-      pictureUrl: pictureUrl || '',
-      authType: 'line'
+app.post('/api/auth/logout', (req, res) => {
+  if (req.session) {
+    req.session.destroy(err => {
+      if (err) return res.status(500).json({ error: 'Failed to logout session' });
+      res.clearCookie('connect.sid');
+      return res.json({ success: true });
     });
-  } catch (err) {
-    return res.status(401).json({ error: `LINE authentication failed: ${err.message}` });
+  } else {
+    return res.json({ success: true });
   }
 });
 
 /**
  * GET /api/auth/line/login
- * OAuth 2.1 Login redirect endpoint
+ * LINE OAuth 2.1 / OpenID Connect redirect endpoint
  */
 app.get('/api/auth/line/login', (req, res) => {
   const protocol = req.headers['x-forwarded-proto'] || req.protocol;
@@ -423,18 +353,24 @@ app.get('/api/auth/line/login', (req, res) => {
     return res.status(400).send('LINE_CHANNEL_ID is not configured in server environment.');
   }
 
-  const state = Math.random().toString(36).substring(2);
-  const lineAuthUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${encodeURIComponent(LINE_CHANNEL_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=profile%20openid`;
+  const state = Math.random().toString(36).substring(2) + Date.now().toString(36);
+  const nonce = Math.random().toString(36).substring(2);
+
+  if (req.session) {
+    req.session.lineAuthState = { state, nonce };
+  }
+
+  const lineAuthUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${encodeURIComponent(LINE_CHANNEL_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}&scope=profile%20openid%20email&nonce=${encodeURIComponent(nonce)}`;
 
   res.redirect(lineAuthUrl);
 });
 
 /**
  * GET /api/auth/line/callback
- * OAuth 2.1 Callback handler
+ * LINE OAuth 2.1 / OpenID Connect callback endpoint
  */
 app.get('/api/auth/line/callback', async (req, res) => {
-  const { code, error, error_description } = req.query;
+  const { code, state, error, error_description } = req.query;
 
   if (error) {
     return res.status(400).send(`LINE Login Error: ${error_description || error}`);
@@ -449,7 +385,7 @@ app.get('/api/auth/line/callback', async (req, res) => {
     const host = req.headers['x-forwarded-host'] || req.headers.host;
     const redirectUri = `${protocol}://${host}/api/auth/line/callback`;
 
-    // Exchange code for access token
+    // Exchange code for tokens
     const tokenParams = new URLSearchParams({
       grant_type: 'authorization_code',
       code,
@@ -471,36 +407,138 @@ app.get('/api/auth/line/callback', async (req, res) => {
 
     const tokenData = await tokenResp.json();
     const accessToken = tokenData.access_token;
+    const idToken = tokenData.id_token;
 
-    // Get user profile
-    const profileResp = await fetch('https://api.line.me/v2/profile', {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    let lineUid = '';
+    let displayName = '';
+    let pictureUrl = '';
+    let email = '';
 
-    if (!profileResp.ok) {
-      throw new Error(`Failed to fetch user profile (${profileResp.status})`);
+    // Verify OpenID Connect ID Token if present
+    if (idToken) {
+      try {
+        const verifyParams = new URLSearchParams({ id_token: idToken, client_id: LINE_CHANNEL_ID });
+        const verifyResp = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: verifyParams
+        });
+        if (verifyResp.ok) {
+          const verifiedData = await verifyResp.json();
+          lineUid = verifiedData.sub;
+          displayName = verifiedData.name || '';
+          pictureUrl = verifiedData.picture || '';
+          email = verifiedData.email || '';
+        }
+      } catch (err) {
+        console.warn('ID Token verify error:', err.message);
+      }
     }
 
-    const profile = await profileResp.json();
-    const lineUid = profile.userId;
-    const displayName = profile.displayName || lineUid;
+    // Fallback: Fetch user profile via Access Token if needed
+    if (!lineUid && accessToken) {
+      const profileResp = await fetch('https://api.line.me/v2/profile', {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+      if (profileResp.ok) {
+        const profile = await profileResp.json();
+        lineUid = profile.userId;
+        displayName = profile.displayName;
+        pictureUrl = profile.pictureUrl;
+      }
+    }
 
-    // Merge in Firestore
+    if (!lineUid) {
+      throw new Error('Unable to extract LINE User ID from OpenID token or profile');
+    }
+
+    // Save user metadata in Firestore
     if (db) {
       await db.collection('users').doc(lineUid).set({
         userId: lineUid,
-        displayName,
-        pictureUrl: profile.pictureUrl || '',
+        displayName: displayName || lineUid,
+        pictureUrl: pictureUrl || '',
+        email: email || '',
         authType: 'line',
         lastLoginAt: new Date().toISOString()
       }, { merge: true });
     }
 
-    // Redirect to frontend with LINE credentials
-    res.redirect(`/?userId=${encodeURIComponent(lineUid)}&displayName=${encodeURIComponent(displayName)}`);
+    // Store in Session
+    const userSessionObj = {
+      userId: lineUid,
+      displayName: displayName || `LINE User (${lineUid.slice(0, 8)})`,
+      pictureUrl: pictureUrl || '',
+      email: email || '',
+      authType: 'line'
+    };
+
+    if (req.session) {
+      req.session.user = userSessionObj;
+    }
+
+    res.redirect('/');
   } catch (err) {
     console.error('LINE Callback Error:', err.message);
-    res.status(500).send(`LINE Authentication Failed: ${err.message}`);
+    res.status(500).send(`LINE OpenID Authentication Failed: ${err.message}`);
+  }
+});
+
+/**
+ * POST /api/auth/line/verify-idtoken
+ * Verify LINE ID Token (from LIFF) and establish session
+ */
+app.post('/api/auth/line/verify-idtoken', async (req, res) => {
+  const { idToken } = req.body || {};
+
+  if (!idToken) {
+    return res.status(400).json({ error: 'ID token is required.' });
+  }
+
+  try {
+    const params = new URLSearchParams({ id_token: idToken, client_id: LINE_CHANNEL_ID });
+    const verifyResp = await fetch('https://api.line.me/oauth2/v2.1/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params
+    });
+
+    if (!verifyResp.ok) {
+      throw new Error(`LINE ID token verify failed: ${verifyResp.status}`);
+    }
+
+    const tokenData = await verifyResp.json();
+    const lineUid = tokenData.sub;
+    const displayName = tokenData.name || `LINE User (${lineUid.slice(0, 8)})`;
+    const pictureUrl = tokenData.picture || '';
+    const email = tokenData.email || '';
+
+    if (db) {
+      await db.collection('users').doc(lineUid).set({
+        userId: lineUid,
+        displayName,
+        pictureUrl,
+        email,
+        authType: 'line',
+        lastLoginAt: new Date().toISOString()
+      }, { merge: true });
+    }
+
+    const userObj = {
+      userId: lineUid,
+      displayName,
+      pictureUrl,
+      email,
+      authType: 'line'
+    };
+
+    if (req.session) {
+      req.session.user = userObj;
+    }
+
+    return res.json({ success: true, user: userObj });
+  } catch (err) {
+    return res.status(401).json({ error: err.message });
   }
 });
 

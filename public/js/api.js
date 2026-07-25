@@ -159,3 +159,35 @@ export async function verifyLineToken({ accessToken, idToken }) {
   }
   return data;
 }
+
+/**
+ * Check current authenticated session
+ */
+export async function checkAuthSession() {
+  const res = await fetch('/api/auth/me');
+  return res.json();
+}
+
+/**
+ * Logout authenticated session
+ */
+export async function logoutSession() {
+  const res = await fetch('/api/auth/logout', { method: 'POST' });
+  return res.json();
+}
+
+/**
+ * Verify LIFF ID token and establish session
+ */
+export async function verifyLineIdToken(idToken) {
+  const res = await fetch('/api/auth/line/verify-idtoken', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: JSON.stringify({ idToken })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'LINE ID token verification failed');
+  }
+  return data;
+}
