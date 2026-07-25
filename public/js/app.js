@@ -94,6 +94,8 @@ const state = {
   isRefreshing: false,
   pendingFeedUrl: null,       // For add-feed flow
   pendingFeedData: null,
+  previewArticles: [],
+  previewPageIndex: 0,
 };
 
 // ─── Initialization ─────────────────────────────────
@@ -1045,18 +1047,32 @@ async function previewFeed(feedUrl) {
 
     let sampleArticlesHtml = '';
     if (sampleArticles.length > 0) {
-      sampleArticlesHtml = `
-        <div class="feed-preview-samples">
-          <div class="feed-preview-samples-title">最新範例文章 (Sample Articles):</div>
-          ${sampleArticles.map(art => {
+      const itemsPerPage = 5;
+      let pagesHtml = '';
+      for (let i = 0; i < sampleArticles.length; i += itemsPerPage) {
+        const pageItems = sampleArticles.slice(i, i + itemsPerPage);
+        pagesHtml += `<div class="feed-preview-page" style="scroll-snap-align: start; min-height: 100%; flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; padding-bottom: 10px;">
+          ${pageItems.map(art => {
             const artTitle = art.translatedTitle ? `${escHtml(art.translatedTitle)} <span class="orig-title">(${escHtml(art.title)})</span>` : escHtml(art.title);
             const langBadge = !art.isTraditionalChinese ? `<span class="lang-badge">${escHtml(art.languageName || '外文')}</span>` : '';
             return `
               <div class="feed-preview-sample-item">
                 ${langBadge}
-                <div>${artTitle}</div>
+                <div style="flex:1; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;">${artTitle}</div>
               </div>`;
           }).join('')}
+        </div>`;
+      }
+
+      sampleArticlesHtml = `
+        <div class="feed-preview-samples" style="margin-top: 15px;">
+          <div class="feed-preview-samples-title" style="margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
+            <span>最新文章預覽 (${sampleArticles.length} 篇):</span>
+            <span style="font-size: 12px; color: var(--text-muted); animation: pulse 2s infinite;">☝️ 往上滑動翻頁</span>
+          </div>
+          <div class="feed-preview-carousel" style="scroll-snap-type: y mandatory; overflow-y: auto; height: 320px; display: flex; flex-direction: column; scroll-behavior: smooth;">
+            ${pagesHtml}
+          </div>
         </div>`;
     }
 

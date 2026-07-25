@@ -764,7 +764,7 @@ app.post('/api/feed/preview', async (req, res) => {
 
     const title = feed.title || 'Untitled Feed';
     const description = feed.description || feed.snippet || '';
-    const sampleItems = (feed.items || []).slice(0, 3).map(item => {
+    const sampleItems = (feed.items || []).slice(0, 20).map(item => {
       const itemTitle = item.title || 'Untitled';
       const itemSummary = extractSummary(item);
       const langInfo = detectLanguage(itemTitle, itemSummary);
