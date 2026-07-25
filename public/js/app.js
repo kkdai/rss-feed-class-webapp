@@ -410,18 +410,28 @@ function renderArticleCard(article, viewMode, isRead) {
   const timeAgo = formatTimeAgo(article.pubDate);
   const readClass = isRead ? 'read' : '';
   const favicon = article.feedFavicon || '';
+  const langBadge = (article.isTraditionalChinese === false && article.languageName)
+    ? `<span class="lang-badge">${escHtml(article.languageName)}</span>`
+    : '';
+
+  const translation = Store.getTranslation(article.id);
+  const displayTitle = translation ? translation.translatedTitle : article.title;
+  const displaySnippet = translation ? truncate(stripHtml(translation.translatedContent), 120) : truncate(stripHtml(article.summary || article.content), 120);
+  const translatedBadge = translation ? `<span class="translated-badge">✨ 繁中</span>` : '';
 
   switch (viewMode) {
     case 'magazine':
       return `
         <div class="article-card ${readClass}" data-article-id="${escAttr(article.id)}">
           <div class="article-content">
-            <h3 class="article-title">${escHtml(article.title)}</h3>
-            <p class="article-snippet">${escHtml(truncate(stripHtml(article.summary || article.content), 120))}</p>
+            <h3 class="article-title">${escHtml(displayTitle)}</h3>
+            <p class="article-snippet">${escHtml(displaySnippet)}</p>
             <div class="article-meta">
               ${favicon ? `<img class="article-meta-favicon" src="${escAttr(favicon)}" alt="" onerror="this.style.display='none'" style="width:16px;height:16px;border-radius:2px;">` : ''}
               <span class="article-source">${escHtml(article.feedTitle || '')}</span>
               <span class="article-time">${timeAgo}</span>
+              ${langBadge}
+              ${translatedBadge}
             </div>
           </div>
           ${article.thumbnail ? `<img class="article-thumbnail" src="${escAttr(article.thumbnail)}" alt="" loading="lazy" onerror="this.style.display='none'">` : ''}
@@ -431,14 +441,16 @@ function renderArticleCard(article, viewMode, isRead) {
       return `
         <div class="article-card ${readClass}" data-article-id="${escAttr(article.id)}">
           ${favicon ? `<img class="article-favicon" src="${escAttr(favicon)}" alt="" onerror="this.style.display='none'">` : ''}
-          <span class="article-title">${escHtml(article.title)}</span>
+          <span class="article-title">${escHtml(displayTitle)}</span>
+          ${langBadge}
           <span class="article-date">${timeAgo}</span>
         </div>`;
 
     case 'title':
       return `
         <div class="article-card ${readClass}" data-article-id="${escAttr(article.id)}">
-          <span class="article-title">${escHtml(article.title)}</span>
+          <span class="article-title">${escHtml(displayTitle)}</span>
+          ${langBadge}
         </div>`;
 
     case 'cards':
@@ -449,12 +461,14 @@ function renderArticleCard(article, viewMode, isRead) {
               <img class="article-thumbnail" src="${escAttr(article.thumbnail)}" alt="" loading="lazy" onerror="this.parentElement.style.display='none'">
             </div>` : ''}
           <div class="article-content">
-            <h3 class="article-title">${escHtml(article.title)}</h3>
-            <p class="article-snippet">${escHtml(truncate(stripHtml(article.summary || article.content), 100))}</p>
+            <h3 class="article-title">${escHtml(displayTitle)}</h3>
+            <p class="article-snippet">${escHtml(displaySnippet)}</p>
             <div class="article-meta">
               ${favicon ? `<img class="article-meta-favicon" src="${escAttr(favicon)}" alt="" onerror="this.style.display='none'" style="width:16px;height:16px;border-radius:2px;">` : ''}
               <span class="article-source">${escHtml(article.feedTitle || '')}</span>
               <span class="article-time">${timeAgo}</span>
+              ${langBadge}
+              ${translatedBadge}
             </div>
           </div>
         </div>`;
@@ -485,7 +499,7 @@ function applyViewMode() {
 
 // ─── Article Reader ─────────────────────────────────
 
-function openArticle(article) {
+async function openArticle(article) {
   state.currentArticle = article;
 
   // Mark as read
@@ -495,7 +509,6 @@ function openArticle(article) {
   const card = DOM.articlesList.querySelector(`[data-article-id="${CSS.escape(article.id)}"]`);
   if (card) card.classList.add('read');
 
-  // Render reader content
   const pubDate = new Date(article.pubDate);
   const dateStr = pubDate.toLocaleDateString('zh-TW', {
     year: 'numeric', month: 'long', day: 'numeric',
@@ -504,30 +517,63 @@ function openArticle(article) {
 
   DOM.readerSource.textContent = article.feedTitle || '';
 
-  DOM.readerContent.innerHTML = `
-    <div class="reader-meta">
-      <h1 class="title">${escHtml(article.title)}</h1>
-      <div class="details">
-        ${article.author ? `<span>${escHtml(article.author)}</span>` : ''}
-        <span>${dateStr}</span>
-        ${article.feedTitle ? `<span class="source">${escHtml(article.feedTitle)}</span>` : ''}
-      </div>
-    </div>
-    <div class="reader-body">
-      ${article.content || article.summary || '<p>No content available. Open in browser to read the full article.</p>'}
-    </div>
-    <div class="reader-footer">
-      <a href="${escAttr(article.link)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary reader-open-link">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
-        Open in Browser
-      </a>
-    </div>`;
+  const isNonTraditionalChinese = article.isTraditionalChinese === false;
+  let showingTranslation = isNonTraditionalChinese;
+  let translation = Store.getTranslation(article.id);
 
-  // Intercept links in article content to open externally
-  DOM.readerContent.querySelectorAll('.reader-body a').forEach(a => {
-    a.setAttribute('target', '_blank');
-    a.setAttribute('rel', 'noopener noreferrer');
-  });
+  function renderReaderBody() {
+    const titleToUse = (showingTranslation && translation) ? translation.translatedTitle : article.title;
+    const bodyToUse = (showingTranslation && translation) ? translation.translatedContent : (article.content || article.summary || '<p>No content available.</p>');
+
+    let toggleBtnHtml = '';
+    if (isNonTraditionalChinese) {
+      if (showingTranslation && translation) {
+        toggleBtnHtml = `<button class="lang-toggle-btn" id="langToggleBtn">🌐 顯示原文 (${escHtml(article.languageName || '外文')})</button>`;
+      } else if (!showingTranslation && translation) {
+        toggleBtnHtml = `<button class="lang-toggle-btn" id="langToggleBtn">✨ 顯示 Gemini 繁中翻譯</button>`;
+      } else {
+        toggleBtnHtml = `<button class="lang-toggle-btn" id="langToggleBtn">✨ 正在使用 Gemini 翻譯成繁中...</button>`;
+      }
+    }
+
+    DOM.readerContent.innerHTML = `
+      <div class="reader-meta">
+        <h1 class="title">${escHtml(titleToUse)}</h1>
+        <div class="details">
+          ${isNonTraditionalChinese ? `<span class="lang-badge">${escHtml(article.languageName || '外文')}</span>` : ''}
+          ${(showingTranslation && translation) ? `<span class="translated-badge">✨ Gemini 繁中</span>` : ''}
+          ${article.author ? `<span>${escHtml(article.author)}</span>` : ''}
+          <span>${dateStr}</span>
+          ${article.feedTitle ? `<span class="source">${escHtml(article.feedTitle)}</span>` : ''}
+          ${toggleBtnHtml}
+        </div>
+      </div>
+      <div class="reader-body">
+        ${bodyToUse}
+      </div>
+      <div class="reader-footer">
+        <a href="${escAttr(article.link)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary reader-open-link">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open in Browser
+        </a>
+      </div>`;
+
+    DOM.readerContent.querySelectorAll('.reader-body a').forEach(a => {
+      a.setAttribute('target', '_blank');
+      a.setAttribute('rel', 'noopener noreferrer');
+    });
+
+    const toggleBtn = $('langToggleBtn');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        showingTranslation = !showingTranslation;
+        renderReaderBody();
+      });
+    }
+  }
+
+  // Initial render
+  renderReaderBody();
 
   // Show reader
   DOM.articleReader.classList.add('open');
@@ -536,6 +582,32 @@ function openArticle(article) {
 
   // Update sidebar counts
   renderSidebar();
+
+  // Auto-fetch translation if non-Traditional Chinese and not translated yet
+  if (isNonTraditionalChinese && !translation) {
+    try {
+      const res = await API.translateArticle(article.title, article.content || article.summary, article.languageName);
+      if (res && res.translatedTitle) {
+        translation = {
+          translatedTitle: res.translatedTitle,
+          translatedContent: res.translatedContent
+        };
+        Store.saveTranslation(article.id, translation);
+        if (state.currentArticle?.id === article.id) {
+          renderReaderBody();
+          // Also update card in main view
+          loadCurrentView();
+        }
+      }
+    } catch (err) {
+      console.warn('Translation failed or GEMINI_API_KEY missing:', err.message);
+      const toggleBtn = $('langToggleBtn');
+      if (toggleBtn) {
+        toggleBtn.textContent = `⚠️ 翻譯失敗 (點擊重試)`;
+        toggleBtn.onclick = () => openArticle(article);
+      }
+    }
+  }
 }
 
 function closeReader() {

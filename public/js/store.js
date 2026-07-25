@@ -9,6 +9,7 @@ const KEYS = {
   ARTICLES: 'ff_articles',
   READ: 'ff_read',
   SETTINGS: 'ff_settings',
+  TRANSLATIONS: 'ff_translations',
 };
 
 function uid() {
@@ -230,3 +231,16 @@ export function clearAllData() {
 }
 
 export { uid };
+
+// ── Translations ───────────────────────────────────
+
+export function getTranslation(articleId) {
+  const all = load(KEYS.TRANSLATIONS, {});
+  return all[articleId] || null;
+}
+
+export function saveTranslation(articleId, translationData) {
+  const all = load(KEYS.TRANSLATIONS, {});
+  all[articleId] = translationData;
+  save(KEYS.TRANSLATIONS, all);
+}

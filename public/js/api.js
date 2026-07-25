@@ -48,3 +48,23 @@ export function getFaviconUrl(siteUrl) {
     return '';
   }
 }
+
+/**
+ * Translate article title and content to Traditional Chinese via Gemini 2.5 Flash
+ * @param {string} title
+ * @param {string} content
+ * @param {string} languageName
+ * @returns {Promise<{translatedTitle: string, translatedContent: string, languageName: string}>}
+ */
+export async function translateArticle(title, content, languageName) {
+  const res = await fetch('/api/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, content, languageName })
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error || 'Translation failed');
+  }
+  return data;
+}
