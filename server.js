@@ -6,6 +6,7 @@ import * as cheerio from 'cheerio';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Firestore } from '@google-cloud/firestore';
+import { GoogleGenAI } from '@google/genai';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -24,6 +25,21 @@ try {
   console.log('Firestore DB initialized successfully.');
 } catch (err) {
   console.warn('Firestore DB initialization warning:', err.message);
+}
+
+// Initialize Vertex AI Gemini Client using Cloud Run Service Account Self-Identity (ADC)
+let aiClient = null;
+try {
+  const gcpProject = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex';
+  const gcpLocation = process.env.GCP_LOCATION || 'asia-east1';
+  aiClient = new GoogleGenAI({
+    vertexAI: true,
+    project: gcpProject,
+    location: gcpLocation,
+  });
+  console.log(`Vertex AI client initialized with self-identity (ADC) for project=${gcpProject}, location=${gcpLocation}`);
+} catch (err) {
+  console.warn('Vertex AI self-identity init warning:', err.message);
 }
 
 const parser = new Parser({
@@ -249,14 +265,9 @@ const LANG_TARGET_NAMES = {
 };
 
 /**
- * Translate title and content using Gemini 2.5 Flash
+ * Translate title and content using Gemini 2.5 Flash via Vertex AI ADC Self-Identity or API Key
  */
 async function translateTextWithGemini(textToTranslate, titleToTranslate, targetLang = 'zh-TW') {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-  if (!apiKey) {
-    throw new Error('GEMINI_API_KEY is not set on the server.');
-  }
-
   const targetLangName = LANG_TARGET_NAMES[targetLang] || 'Traditional Chinese (繁體中文)';
 
   const prompt = `You are a professional translator. Translate the following title and text into natural ${targetLangName}.
@@ -267,6 +278,29 @@ ${titleToTranslate || ''}
 
 Content to translate:
 ${textToTranslate || ''}`;
+
+  // 1. Try Vertex AI with Cloud Run Service Account Self-Identity (ADC)
+  if (aiClient) {
+    try {
+      const response = await aiClient.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: prompt,
+        config: {
+          responseMimeType: 'application/json',
+        }
+      });
+      const rawText = response.text || '{}';
+      return JSON.parse(rawText);
+    } catch (err) {
+      console.warn('Vertex AI self-identity generation note, fallback to API key if available:', err.message);
+    }
+  }
+
+  // 2. Fallback: GEMINI_API_KEY if present
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
+  if (!apiKey) {
+    throw new Error('Neither Vertex AI ADC self-identity nor GEMINI_API_KEY is available.');
+  }
 
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
     method: 'POST',
@@ -721,34 +755,31 @@ app.post('/api/feed/preview', async (req, res) => {
     let translatedDescription = description;
     let isTranslated = false;
 
-    // Check if Gemini translation is available
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || '';
-    if (apiKey) {
-      try {
-        const transResult = await translateTextWithGemini(description, title, targetLanguage);
-        if (transResult && transResult.translatedTitle) {
-          translatedTitle = transResult.translatedTitle;
-          translatedDescription = transResult.translatedContent || description;
-          isTranslated = true;
-        }
-      } catch (err) {
-        console.warn('Preview translation error:', err.message);
+    // Translate preview via Vertex AI ADC or API Key
+    try {
+      const transResult = await translateTextWithGemini(description, title, targetLanguage);
+      if (transResult && transResult.translatedTitle) {
+        translatedTitle = transResult.translatedTitle;
+        translatedDescription = transResult.translatedContent || description;
+        isTranslated = true;
       }
-
-      // Also translate sample item titles in parallel
-      await Promise.allSettled(sampleItems.map(async (item) => {
-        if (!item.isTraditionalChinese) {
-          try {
-            const itemTrans = await translateTextWithGemini('', item.title, targetLanguage);
-            if (itemTrans && itemTrans.translatedTitle) {
-              item.translatedTitle = itemTrans.translatedTitle;
-            }
-          } catch {
-            // Ignore single item translation failure
-          }
-        }
-      }));
+    } catch (err) {
+      console.warn('Preview translation error:', err.message);
     }
+
+    // Also translate sample item titles in parallel
+    await Promise.allSettled(sampleItems.map(async (item) => {
+      if (!item.isTraditionalChinese) {
+        try {
+          const itemTrans = await translateTextWithGemini('', item.title, targetLanguage);
+          if (itemTrans && itemTrans.translatedTitle) {
+            item.translatedTitle = itemTrans.translatedTitle;
+          }
+        } catch {
+          // Ignore single item translation failure
+        }
+      }
+    }));
 
     return res.json({
       title,
