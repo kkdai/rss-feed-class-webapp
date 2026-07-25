@@ -410,6 +410,100 @@ app.post('/api/auth/line/verify-token', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/auth/line/login
+ * OAuth 2.1 Login redirect endpoint
+ */
+app.get('/api/auth/line/login', (req, res) => {
+  const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+  const host = req.headers['x-forwarded-host'] || req.headers.host;
+  const redirectUri = `${protocol}://${host}/api/auth/line/callback`;
+
+  if (!LINE_CHANNEL_ID) {
+    return res.status(400).send('LINE_CHANNEL_ID is not configured in server environment.');
+  }
+
+  const state = Math.random().toString(36).substring(2);
+  const lineAuthUrl = `https://access.line.me/oauth2/v2.1/authorize?response_type=code&client_id=${encodeURIComponent(LINE_CHANNEL_ID)}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=profile%20openid`;
+
+  res.redirect(lineAuthUrl);
+});
+
+/**
+ * GET /api/auth/line/callback
+ * OAuth 2.1 Callback handler
+ */
+app.get('/api/auth/line/callback', async (req, res) => {
+  const { code, error, error_description } = req.query;
+
+  if (error) {
+    return res.status(400).send(`LINE Login Error: ${error_description || error}`);
+  }
+
+  if (!code) {
+    return res.status(400).send('Missing authorization code from LINE.');
+  }
+
+  try {
+    const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    const host = req.headers['x-forwarded-host'] || req.headers.host;
+    const redirectUri = `${protocol}://${host}/api/auth/line/callback`;
+
+    // Exchange code for access token
+    const tokenParams = new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: redirectUri,
+      client_id: LINE_CHANNEL_ID,
+      client_secret: LINE_CHANNEL_SECRET
+    });
+
+    const tokenResp = await fetch('https://api.line.me/oauth2/v2.1/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: tokenParams
+    });
+
+    if (!tokenResp.ok) {
+      const errBody = await tokenResp.text();
+      throw new Error(`Token exchange failed (${tokenResp.status}): ${errBody}`);
+    }
+
+    const tokenData = await tokenResp.json();
+    const accessToken = tokenData.access_token;
+
+    // Get user profile
+    const profileResp = await fetch('https://api.line.me/v2/profile', {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+
+    if (!profileResp.ok) {
+      throw new Error(`Failed to fetch user profile (${profileResp.status})`);
+    }
+
+    const profile = await profileResp.json();
+    const lineUid = profile.userId;
+    const displayName = profile.displayName || lineUid;
+
+    // Merge in Firestore
+    if (db) {
+      await db.collection('users').doc(lineUid).set({
+        userId: lineUid,
+        displayName,
+        pictureUrl: profile.pictureUrl || '',
+        authType: 'line',
+        lastLoginAt: new Date().toISOString()
+      }, { merge: true });
+    }
+
+    // Redirect to frontend with LINE credentials
+    res.redirect(`/?userId=${encodeURIComponent(lineUid)}&displayName=${encodeURIComponent(displayName)}`);
+  } catch (err) {
+    console.error('LINE Callback Error:', err.message);
+    res.status(500).send(`LINE Authentication Failed: ${err.message}`);
+  }
+});
+
 // ─── Multi-User Firestore Endpoints ────────────────
 
 /**
