@@ -73,12 +73,7 @@ const DOM = {
   // LINE Login Elements
   lineLoginBtnTop: $('lineLoginBtnTop'),
   lineLoginModalBtn: $('lineLoginModalBtn'),
-  lineLoginModal: $('lineLoginModal'),
-  closeLineLoginModal: $('closeLineLoginModal'),
-  cancelLineLogin: $('cancelLineLogin'),
-  confirmLineLogin: $('confirmLineLogin'),
-  lineUidInput: $('lineUidInput'),
-  lineDisplayNameInput: $('lineDisplayNameInput'),
+  lineLogoutBtn: $('lineLogoutBtn'),
   lineDisplayName: $('lineDisplayName'),
   lineUidDisplay: $('lineUidDisplay'),
   // Confirm Modal
@@ -104,10 +99,22 @@ const state = {
 // ─── Initialization ─────────────────────────────────
 
 async function init() {
-  const userId = Store.getUserId();
   bindEvents();
   applyViewMode();
   applyUiTranslations();
+
+  // Check authenticated session via /api/auth/me
+  try {
+    const authSession = await API.checkAuthSession();
+    if (authSession && authSession.authenticated && authSession.user) {
+      Store.setUserProfile(authSession.user);
+      Store.setUserId(authSession.user.userId);
+    }
+  } catch (err) {
+    console.warn('Session check note:', err.message);
+  }
+
+  const userId = Store.getUserId();
   updateUserAccountBadge();
 
   renderSidebar();
@@ -140,39 +147,67 @@ async function init() {
 function updateUserAccountBadge() {
   const profile = Store.getUserProfile();
   const userId = Store.getUserId();
+  const isLoggedInLine = userId && userId.startsWith('U');
+
   if (DOM.userIdDisplay) {
     DOM.userIdDisplay.textContent = `User ID: ${userId}`;
   }
   if (DOM.lineDisplayName) {
-    DOM.lineDisplayName.textContent = profile.displayName || 'LINE 登入';
+    DOM.lineDisplayName.textContent = isLoggedInLine ? (profile.displayName || 'LINE 用戶') : '未登入 LINE';
   }
   if (DOM.lineUidDisplay) {
     DOM.lineUidDisplay.textContent = `UID: ${userId}`;
   }
   if (DOM.lineLoginBtnTop) {
-    DOM.lineLoginBtnTop.textContent = userId.startsWith('U') ? `🟢 ${profile.displayName || userId.slice(0, 8)}` : '💬 LINE 登入';
+    DOM.lineLoginBtnTop.textContent = isLoggedInLine ? `🟢 ${profile.displayName || userId.slice(0, 8)}` : '💬 LINE 登入';
   }
+
+  if (DOM.lineLogoutBtn) {
+    DOM.lineLogoutBtn.style.display = isLoggedInLine ? 'inline-block' : 'none';
+  }
+}
+
+function triggerLineOpenIdLogin() {
+  if (window.liff && window.liff.isInClient()) {
+    if (!window.liff.isLoggedIn()) {
+      window.liff.login();
+      return;
+    }
+  }
+  // Redirect directly to server LINE OpenID Connect login route
+  window.location.href = '/api/auth/line/login';
+}
+
+async function handleLineLogout() {
+  try {
+    await API.logoutSession();
+  } catch {}
+  Store.clearAuth();
+  showToast('已登出 Session', 'info');
+  setTimeout(() => { window.location.href = '/'; }, 500);
 }
 
 async function tryInitLiff() {
   if (window.liff) {
     try {
       if (window.liff.isInClient() && window.liff.isLoggedIn()) {
-        const profile = await window.liff.getProfile();
-        if (profile && profile.userId) {
-          const authRes = await API.loginWithLineUid(profile.userId, profile.displayName);
-          Store.setUserProfile(authRes);
-          updateUserAccountBadge();
-          const remoteData = await API.fetchUserData(profile.userId);
-          if (remoteData && remoteData.storage === 'firestore') {
-            Store.syncWithFirestore(remoteData);
-            renderSidebar();
-            loadCurrentView();
+        const idToken = window.liff.getIDToken();
+        if (idToken) {
+          const authRes = await API.verifyLineIdToken(idToken);
+          if (authRes && authRes.user) {
+            Store.setUserProfile(authRes.user);
+            updateUserAccountBadge();
+            const remoteData = await API.fetchUserData(authRes.user.userId);
+            if (remoteData && remoteData.storage === 'firestore') {
+              Store.syncWithFirestore(remoteData);
+              renderSidebar();
+              loadCurrentView();
+            }
           }
         }
       }
     } catch (err) {
-      console.warn('LIFF init note:', err.message);
+      console.warn('LIFF OIDC init note:', err.message);
     }
   }
 }
@@ -213,12 +248,10 @@ function bindEvents() {
   DOM.confirmSettings.addEventListener('click', handleConfirmSettings);
   DOM.settingsModal.querySelector('.modal-backdrop').addEventListener('click', closeSettingsModal);
 
-  // LINE Login Modal
-  if (DOM.lineLoginBtnTop) DOM.lineLoginBtnTop.addEventListener('click', openLineLoginModal);
-  if (DOM.lineLoginModalBtn) DOM.lineLoginModalBtn.addEventListener('click', openLineLoginModal);
-  if (DOM.closeLineLoginModal) DOM.closeLineLoginModal.addEventListener('click', closeLineLoginModal);
-  if (DOM.cancelLineLogin) DOM.cancelLineLogin.addEventListener('click', closeLineLoginModal);
-  if (DOM.confirmLineLogin) DOM.confirmLineLogin.addEventListener('click', handleConfirmLineLogin);
+  // LINE Login Events
+  if (DOM.lineLoginBtnTop) DOM.lineLoginBtnTop.addEventListener('click', triggerLineOpenIdLogin);
+  if (DOM.lineLoginModalBtn) DOM.lineLoginModalBtn.addEventListener('click', triggerLineOpenIdLogin);
+  if (DOM.lineLogoutBtn) DOM.lineLogoutBtn.addEventListener('click', handleLineLogout);
 
   // Article reader
   DOM.readerBackBtn.addEventListener('click', closeReader);

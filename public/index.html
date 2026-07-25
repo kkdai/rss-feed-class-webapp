@@ -260,20 +260,25 @@
         </button>
       </div>
       <div class="modal-body">
-        <!-- LINE Account Card -->
+        <!-- LINE OpenID Account Card -->
         <div class="line-auth-card">
           <div class="line-user-info" id="lineUserInfo">
             <div style="display:flex; align-items:center; gap:8px;">
-              <span style="font-size:20px;">💬</span>
+              <span style="font-size:24px;">💬</span>
               <div>
-                <div id="lineDisplayName" style="font-weight:600; font-size:14px; color:#06C755;">LINE 登入</div>
+                <div id="lineDisplayName" style="font-weight:600; font-size:14px; color:#06C755;">LINE OpenID 登入</div>
                 <div id="lineUidDisplay" style="font-size:11px; color:var(--text-tertiary);">UID: default-user</div>
               </div>
             </div>
           </div>
-          <button class="btn btn-sm btn-line" id="lineLoginModalBtn" style="margin-top:10px; width:100%;">
-            💬 切換 / 使用 LINE UID 登入
-          </button>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <button class="btn btn-sm btn-line" id="lineLoginModalBtn" style="flex:1;">
+              💬 LINE 帳號登入
+            </button>
+            <button class="btn btn-sm btn-danger" id="lineLogoutBtn" style="display:none;">
+              登出
+            </button>
+          </div>
         </div>
 
         <!-- User account indicator -->
@@ -303,38 +308,6 @@
       <div class="modal-footer">
         <button class="btn btn-secondary" id="cancelSettings">取消</button>
         <button class="btn btn-primary" id="confirmSettings">儲存</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- LINE Login Modal -->
-  <div id="lineLoginModal" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-content modal-sm">
-      <div class="modal-header">
-        <h2 style="display:flex; align-items:center; gap:8px;">
-          <span style="color:#06C755;">💬</span> LINE 帳號登入 / 註冊
-        </h2>
-        <button class="icon-btn modal-close" id="closeLineLoginModal" aria-label="Close">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="modal-body">
-        <p style="font-size:13px; color:var(--text-secondary); margin-bottom:12px;">
-          請輸入您的 LINE UID (User ID) 進行帳號綁定與 Firestore 雲端資料同步：
-        </p>
-        <div class="input-group">
-          <label for="lineUidInput">LINE User ID (UID)</label>
-          <input type="text" id="lineUidInput" value="REDACTED_LINE_UID" placeholder="e.g. REDACTED_LINE_UID" autocomplete="off">
-        </div>
-        <div class="input-group">
-          <label for="lineDisplayNameInput">顯示名稱 (Display Name)</label>
-          <input type="text" id="lineDisplayNameInput" value="LINE User" placeholder="e.g. Alex" autocomplete="off">
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" id="cancelLineLogin">取消</button>
-        <button class="btn btn-line" id="confirmLineLogin">登入並同步資料</button>
       </div>
     </div>
   </div>
