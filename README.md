@@ -8,7 +8,10 @@
 
 **FeedFlow** 是一款專為手機瀏覽器設計的現代化 RSS 閱讀器，復刻經典 **Feedly Classic** 的簡潔高效體驗，整合 **Google Firestore** 雲端多使用者資料庫、**LINE Login (LINE UID)** 帳號綁定、多國語言介面 (i18n)，並結合 **Gemini 2.5 Flash** 提供外文內容自動語系辨識與即時繁體中文翻譯。
 
-👉 **[立即體驗 FeedFlow 線上 Demo 網頁](https://feedflow-660825558664.asia-east1.run.app)**
+
+<img width="1179" height="2556" alt="image" src="https://github.com/user-attachments/assets/90d18b33-c20e-43a1-9215-596a6f6fa214" />
+<img width="1179" height="2556" alt="image" src="https://github.com/user-attachments/assets/d7d43ec6-b3ff-4245-bb8c-973cd19cf614" />
+
 
 ---
 
