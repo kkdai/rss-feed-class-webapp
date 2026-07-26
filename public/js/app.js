@@ -25,6 +25,10 @@ const DOM = {
   settingsBtn: $('settingsBtn'),
   articlesContainer: $('articlesContainer'),
   articlesList: $('articlesList'),
+  articlesPageNav: $('articlesPageNav'),
+  articlesPrevPageBtn: $('articlesPrevPageBtn'),
+  articlesNextPageBtn: $('articlesNextPageBtn'),
+  articlesPageIndicator: $('articlesPageIndicator'),
   loadingState: $('loadingState'),
   emptyState: $('emptyState'),
   noArticlesState: $('noArticlesState'),
@@ -96,6 +100,7 @@ const state = {
   pendingFeedData: null,
   previewArticles: [],
   previewPageIndex: 0,
+  currentPage: 0,             // Current page (0-indexed) in the paginated article list
 };
 
 // ─── Initialization ─────────────────────────────────
@@ -287,6 +292,34 @@ function bindEvents() {
   if (DOM.lineLoginBtnTop) DOM.lineLoginBtnTop.addEventListener('click', triggerLineOpenIdLogin);
   if (DOM.lineLoginModalBtn) DOM.lineLoginModalBtn.addEventListener('click', triggerLineOpenIdLogin);
   if (DOM.lineLogoutBtn) DOM.lineLogoutBtn.addEventListener('click', handleLineLogout);
+
+  // Article Pagination: swipe (touch), wheel (desktop), and prev/next buttons
+  let articlesTouchStartY = 0;
+  let articlesWheelLocked = false;
+
+  DOM.articlesContainer.addEventListener('touchstart', (e) => {
+    articlesTouchStartY = e.touches[0].clientY;
+  }, { passive: true });
+
+  DOM.articlesContainer.addEventListener('touchend', (e) => {
+    const endY = e.changedTouches[0].clientY;
+    const diffY = articlesTouchStartY - endY;
+    if (Math.abs(diffY) > 40) {
+      goToArticlesPage(diffY > 0 ? 1 : -1);
+    }
+  }, { passive: true });
+
+  DOM.articlesContainer.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) < 10) return;
+    e.preventDefault();
+    if (articlesWheelLocked) return;
+    articlesWheelLocked = true;
+    goToArticlesPage(e.deltaY > 0 ? 1 : -1);
+    setTimeout(() => { articlesWheelLocked = false; }, 400);
+  }, { passive: false });
+
+  DOM.articlesPrevPageBtn.addEventListener('click', () => goToArticlesPage(-1));
+  DOM.articlesNextPageBtn.addEventListener('click', () => goToArticlesPage(1));
 
   // Article reader
   DOM.readerBackBtn.addEventListener('click', closeReader);
@@ -553,6 +586,7 @@ function updateActiveNav() {
 
 function navigateTo(view) {
   state.currentView = view;
+  state.currentPage = 0;
   closeSidebar();
   updateActiveNav();
   loadCurrentView();
@@ -618,6 +652,8 @@ function getArticleLanguageInfo(article) {
   return { isTraditionalChinese: true, languageName: '繁體中文' };
 }
 
+const ARTICLES_PAGE_SIZE = 5;
+
 function renderArticles(articles) {
   const settings = Store.getSettings();
   const readSet = Store.getReadSet();
@@ -633,6 +669,7 @@ function renderArticles(articles) {
     DOM.emptyState.classList.remove('hidden');
     DOM.noArticlesState.classList.add('hidden');
     DOM.articlesList.innerHTML = '';
+    DOM.articlesPageNav.classList.add('hidden');
     return;
   }
 
@@ -641,21 +678,31 @@ function renderArticles(articles) {
   if (articles.length === 0) {
     DOM.noArticlesState.classList.remove('hidden');
     DOM.articlesList.innerHTML = '';
+    DOM.articlesPageNav.classList.add('hidden');
     return;
   }
 
   DOM.noArticlesState.classList.add('hidden');
 
-  // Set view mode class
-  DOM.articlesList.className = `articles-list view-${settings.viewMode}`;
+  // Group into pages of 5, clamping state.currentPage to the valid range
+  const totalPages = Math.ceil(articles.length / ARTICLES_PAGE_SIZE);
+  if (state.currentPage >= totalPages) state.currentPage = totalPages - 1;
+  if (state.currentPage < 0) state.currentPage = 0;
 
-  // Render articles based on view mode
-  const html = articles.map(article => {
-    const isArticleRead = readSet.has(article.id);
-    return renderArticleCard(article, settings.viewMode, isArticleRead);
-  }).join('');
+  DOM.articlesList.className = 'articles-pages-inner';
 
-  DOM.articlesList.innerHTML = html;
+  let pagesHtml = '';
+  for (let p = 0; p < totalPages; p++) {
+    const pageArticles = articles.slice(p * ARTICLES_PAGE_SIZE, p * ARTICLES_PAGE_SIZE + ARTICLES_PAGE_SIZE);
+    const cardsHtml = pageArticles.map(article => {
+      const isArticleRead = readSet.has(article.id);
+      return renderArticleCard(article, settings.viewMode, isArticleRead);
+    }).join('');
+    pagesHtml += `<div class="articles-page"><div class="articles-list view-${settings.viewMode}">${cardsHtml}</div></div>`;
+  }
+  DOM.articlesList.innerHTML = pagesHtml;
+
+  applyArticlesPageTransform();
 
   // Bind article click events
   DOM.articlesList.querySelectorAll('.article-card').forEach(card => {
@@ -668,6 +715,24 @@ function renderArticles(articles) {
 
   // Auto-translate non-Traditional Chinese articles displayed in the main list view
   autoTranslateArticles(articles);
+}
+
+function applyArticlesPageTransform() {
+  const totalPages = DOM.articlesList.querySelectorAll('.articles-page').length;
+  DOM.articlesList.style.transform = `translateY(-${state.currentPage * 100}%)`;
+
+  DOM.articlesPageNav.classList.toggle('hidden', totalPages <= 1);
+  DOM.articlesPageIndicator.textContent = `${state.currentPage + 1} / ${totalPages}`;
+  DOM.articlesPrevPageBtn.disabled = state.currentPage <= 0;
+  DOM.articlesNextPageBtn.disabled = state.currentPage >= totalPages - 1;
+}
+
+function goToArticlesPage(delta) {
+  const totalPages = DOM.articlesList.querySelectorAll('.articles-page').length;
+  const newPage = state.currentPage + delta;
+  if (newPage < 0 || newPage >= totalPages) return;
+  state.currentPage = newPage;
+  applyArticlesPageTransform();
 }
 
 async function autoTranslateArticles(articles) {
@@ -1289,6 +1354,7 @@ async function refreshFeeds() {
 
   DOM.refreshBtn.classList.remove('spinning');
   state.isRefreshing = false;
+  state.currentPage = 0;
 
   renderSidebar();
   loadCurrentView();
