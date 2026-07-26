@@ -15,7 +15,7 @@
 ## ✨ 核心功能特色
 
 ### 1. 💬 LINE Login 註冊與身份驗證
-- **LINE UID 帳號綁定**：支援使用 **LINE User ID (UID)**（例如：`REDACTED_LINE_UID`）作為雲端身份辨識。
+- **LINE UID 帳號綁定**：支援使用 LINE 登入後取得的 **LINE User ID (UID)** 作為雲端身份辨識。
 - **LINE LIFF SDK 整合**：在 LINE App 內建瀏覽器環境開啟時自動進行連動認證。
 - **LINE OAuth 2.1 認證流**：提供標準 OAuth 2.1 Code Grant 重導向與 Callback 處理解析。
 
@@ -91,15 +91,19 @@ npm install
 
 ### 2. 設定環境變數
 
-建立 `.env` 檔案或在終端機中設定環境變數：
+建立 `.env` 檔案或在終端機中設定環境變數（以下皆為範例值，請替換成你自己的）：
 
 ```bash
+export SESSION_SECRET="$(openssl rand -hex 32)"
 export GEMINI_API_KEY="your-gemini-api-key"
-export LINE_CHANNEL_ID="REDACTED_LINE_CHANNEL_ID"
-export LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET"
-export LINE_LIFF_ID="REDACTED_LIFF_ID"
+export LINE_CHANNEL_ID="your-line-channel-id"
+export LINE_CHANNEL_SECRET="your-line-channel-secret"
+export LINE_LIFF_ID="your-line-liff-id"
+export GCP_PROJECT="your-gcp-project-id"
 export PORT=8080
 ```
+
+`SESSION_SECRET` 是必要的，沒有設定會直接拋錯拒絕啟動；`LINE_CHANNEL_SECRET` 請到 [LINE Developers Console](https://developers.line.biz/) 該 Channel 的設定頁取得，切勿提交到版本控制。
 
 ### 3. 啟動開發伺服器
 
@@ -113,20 +117,28 @@ npm start
 
 ## ☁️ 部署至 Google Cloud Run
 
-本專案包含完整的 `Dockerfile`，可使用 `gcloud` 一鍵部署：
+本專案包含完整的 `Dockerfile`，可使用 `gcloud` 一鍵部署。密鑰類的值（`SESSION_SECRET`、`LINE_CHANNEL_SECRET`、`GEMINI_API_KEY`）建議先存進 [Secret Manager](https://cloud.google.com/secret-manager)，用 `--set-secrets` 帶入，不要用 `--set-env-vars` 明碼傳遞：
 
 ```bash
+# 先把密鑰存進 Secret Manager（只需執行一次）
+printf '%s' "$SESSION_SECRET" | gcloud secrets create session-secret --data-file=-
+printf '%s' "$LINE_CHANNEL_SECRET" | gcloud secrets create line-channel-secret --data-file=-
+printf '%s' "$GEMINI_API_KEY" | gcloud secrets create gemini-api-key --data-file=-
+
 gcloud run deploy feedflow \
   --source . \
-  --project line-vertex \
+  --project <YOUR_GCP_PROJECT> \
   --region asia-east1 \
   --allow-unauthenticated \
   --port 8080 \
   --memory 256Mi \
   --cpu 1 \
   --max-instances 3 \
-  --set-env-vars GEMINI_API_KEY="your-gemini-api-key",LINE_CHANNEL_ID="REDACTED_LINE_CHANNEL_ID",LINE_CHANNEL_SECRET="REDACTED_LINE_CHANNEL_SECRET",LINE_LIFF_ID="REDACTED_LIFF_ID"
+  --set-env-vars LINE_CHANNEL_ID="your-line-channel-id",LINE_LIFF_ID="your-line-liff-id",GCP_PROJECT="<YOUR_GCP_PROJECT>" \
+  --set-secrets SESSION_SECRET=session-secret:latest,LINE_CHANNEL_SECRET=line-channel-secret:latest,GEMINI_API_KEY=gemini-api-key:latest
 ```
+
+Cloud Run 的服務身份（service account）本身若已有 `roles/aiplatform.user`，翻譯功能會優先走 Vertex AI ADC，`GEMINI_API_KEY` 只是本地開發沒有 ADC 時的備援，非必要。
 
 ---
 
