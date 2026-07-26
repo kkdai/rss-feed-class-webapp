@@ -7,6 +7,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Firestore } from '@google-cloud/firestore';
 import { GoogleAuth } from 'google-auth-library';
+import dns from 'dns/promises';
+import net from 'net';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -71,9 +73,65 @@ app.use(session({
 app.use(express.static(path.join(__dirname, 'public')));
 
 /**
+ * Returns true if an IP address falls in a private, loopback, link-local,
+ * or otherwise reserved range (this is what makes cloud metadata endpoints
+ * like 169.254.169.254 reachable from SSRF).
+ */
+function isBlockedIp(ip, family) {
+  if (family === 4 || net.isIPv4(ip)) {
+    const parts = ip.split('.').map(Number);
+    const [a, b, c] = parts;
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true; // link-local, incl. cloud metadata server
+    if (a === 100 && b >= 64 && b <= 127) return true; // carrier-grade NAT
+    if (a === 192 && b === 0 && c === 0) return true; // IETF protocol assignments
+    if (a === 198 && (b === 18 || b === 19)) return true; // benchmarking
+    if (a >= 224) return true; // multicast / reserved
+    return false;
+  }
+  const lower = ip.toLowerCase();
+  if (lower === '::1') return true;
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique local fc00::/7
+  if (/^fe[89ab]/.test(lower)) return true; // link-local fe80::/10
+  if (lower.startsWith('::ffff:')) {
+    const v4 = lower.split(':').pop();
+    if (net.isIPv4(v4)) return isBlockedIp(v4, 4);
+  }
+  return false;
+}
+
+/**
+ * Blocks server-side requests to internal/reserved network addresses
+ * (SSRF guard). Resolves the hostname and checks every returned address,
+ * not just the first, since a hostname can have multiple A/AAAA records.
+ */
+async function assertPublicHost(urlStr) {
+  const { hostname } = new URL(urlStr);
+  const lowerHost = hostname.toLowerCase();
+  if (lowerHost === 'localhost' || lowerHost.endsWith('.localhost') || lowerHost.endsWith('.internal')) {
+    throw new Error('Requests to internal hosts are not allowed.');
+  }
+
+  let addresses;
+  try {
+    addresses = await dns.lookup(hostname, { all: true });
+  } catch {
+    throw new Error('Unable to resolve host.');
+  }
+
+  if (addresses.length === 0 || addresses.some(({ address, family }) => isBlockedIp(address, family))) {
+    throw new Error('Requests to internal/reserved network addresses are not allowed.');
+  }
+}
+
+/**
  * Fetch helper with custom User-Agent and AbortController timeout (10s)
  */
 async function fetchWithTimeout(urlStr, options = {}) {
+  await assertPublicHost(urlStr);
+
   const { timeoutMs = REQUEST_TIMEOUT_MS, headers = {}, ...restOptions } = options;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -627,10 +685,24 @@ app.post('/api/auth/line/verify-idtoken', async (req, res) => {
 // ─── Multi-User Firestore Endpoints ────────────────
 
 /**
+ * Resolve the effective userId for a request. If the caller has an
+ * authenticated LINE session, that session's userId always wins so a
+ * client can never read or write another LINE user's Firestore data by
+ * passing a different userId in the request. Only unauthenticated
+ * (guest/local) requests fall back to the client-supplied id.
+ */
+function resolveUserId(req, clientUserId) {
+  if (req.session && req.session.user && req.session.user.userId) {
+    return req.session.user.userId;
+  }
+  return clientUserId || req.headers['x-user-id'] || 'default-user';
+}
+
+/**
  * GET /api/user/data?userId=...
  */
 app.get('/api/user/data', async (req, res) => {
-  const userId = req.query.userId || req.headers['x-user-id'] || 'default-user';
+  const userId = resolveUserId(req, req.query.userId);
   if (!db) {
     return res.json({ storage: 'local', userId });
   }
@@ -670,7 +742,7 @@ app.get('/api/user/data', async (req, res) => {
  * POST /api/user/settings
  */
 app.post('/api/user/settings', async (req, res) => {
-  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const userId = resolveUserId(req, req.body.userId);
   const { settings } = req.body || {};
 
   if (db && settings) {
@@ -691,7 +763,7 @@ app.post('/api/user/settings', async (req, res) => {
  * POST /api/user/folder
  */
 app.post('/api/user/folder', async (req, res) => {
-  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const userId = resolveUserId(req, req.body.userId);
   const { folder, action } = req.body || {};
 
   if (db && folder && folder.id) {
@@ -714,7 +786,7 @@ app.post('/api/user/folder', async (req, res) => {
  * POST /api/user/subscription
  */
 app.post('/api/user/subscription', async (req, res) => {
-  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const userId = resolveUserId(req, req.body.userId);
   const { feed, action } = req.body || {};
 
   if (db && feed && feed.id) {
@@ -737,7 +809,7 @@ app.post('/api/user/subscription', async (req, res) => {
  * POST /api/user/read-state
  */
 app.post('/api/user/read-state', async (req, res) => {
-  const userId = req.body.userId || req.headers['x-user-id'] || 'default-user';
+  const userId = resolveUserId(req, req.body.userId);
   const { feedId, lastReadArticleId, readArticleIds } = req.body || {};
 
   if (db && feedId) {

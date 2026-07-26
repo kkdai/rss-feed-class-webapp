@@ -6,6 +6,7 @@
 import * as Store from './store.js';
 import * as API from './api.js';
 import { t } from './i18n.js';
+import DOMPurify from './vendor/dompurify.es.mjs';
 
 // ─── DOM References ─────────────────────────────────
 
@@ -523,7 +524,6 @@ function renderSidebar() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       const feedId = btn.dataset.feedId;
-      const feed = Store.getFeed(feedId);
       const userId = Store.getUserId();
       const lang = Store.getSettings().uiLanguage || 'zh-TW';
       showConfirm(t('removeFeedConfirmTitle', lang), t('removeFeedConfirmMsg', lang), () => {
@@ -541,7 +541,6 @@ function renderSidebar() {
     el.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const folderId = el.dataset.view.replace('folder:', '');
-      const folder = Store.getFolders().find(f => f.id === folderId);
       const userId = Store.getUserId();
       const lang = Store.getSettings().uiLanguage || 'zh-TW';
       showConfirm(t('deleteFolderConfirmTitle', lang), t('deleteFolderConfirmMsg', lang), () => {
@@ -909,7 +908,9 @@ async function openArticle(article) {
 
   function renderReaderBody() {
     const titleToUse = (showingTranslation && translation) ? translation.translatedTitle : article.title;
-    const bodyToUse = (showingTranslation && translation) ? translation.translatedContent : (article.content || article.summary || '<p>No content available.</p>');
+    const rawBody = (showingTranslation && translation) ? translation.translatedContent : (article.content || article.summary || '<p>No content available.</p>');
+    // Article HTML comes from third-party RSS feeds and must never be trusted as-is.
+    const bodyToUse = DOMPurify.sanitize(rawBody);
 
     let toggleBtnHtml = '';
     if (isNonTraditionalChinese) {

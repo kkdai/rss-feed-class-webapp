@@ -6,7 +6,10 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "node --watch server.js",
+    "lint": "eslint server.js public/js/*.js",
+    "syntax-check": "node --check server.js && for f in public/js/*.js; do node --check \"$f\"; done",
+    "smoke-test": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.7.0",
@@ -16,5 +19,10 @@
     "express-session": "^1.19.0",
     "google-auth-library": "^10.3.0",
     "rss-parser": "^3.13.0"
+  },
+  "devDependencies": {
+    "dompurify": "^3.4.12",
+    "eslint": "^9.39.5",
+    "puppeteer": "^24.43.1"
   }
 }

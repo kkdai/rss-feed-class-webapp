@@ -2,8 +2,6 @@
  * FeedAPI - Backend API communication layer
  */
 
-const BASE = '';
-
 async function request(endpoint, params = {}) {
   const url = new URL(endpoint, window.location.origin);
   Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
