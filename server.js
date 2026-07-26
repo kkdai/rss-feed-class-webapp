@@ -21,7 +21,7 @@ const USER_AGENT = 'FeedFlow/1.0 (+https://github.com/feedflow/feedflow)';
 let db = null;
 try {
   db = new Firestore({
-    projectId: process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex',
+    projectId: process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT,
   });
   console.log('Firestore DB initialized successfully.');
 } catch (err) {
@@ -54,8 +54,12 @@ const parser = new Parser({
 // Middleware
 app.use(express.json());
 app.use(cookieParser());
+if (!process.env.SESSION_SECRET) {
+  throw new Error('SESSION_SECRET environment variable is required.');
+}
+
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'REDACTED_SESSION_SECRET',
+  secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -283,7 +287,7 @@ ${textToTranslate || ''}`;
       const tokenRes = await client.getAccessToken();
       const token = tokenRes.token;
       if (token) {
-        const project = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || 'line-vertex';
+        const project = process.env.GCP_PROJECT || process.env.GOOGLE_CLOUD_PROJECT;
         const location = 'us-central1'; // Vertex AI Gemini 2.5 models are available in us-central1 or global
         const model = 'gemini-2.5-flash';
         const url = `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/publishers/google/models/${model}:generateContent`;
@@ -363,9 +367,8 @@ app.post('/api/translate', async (req, res) => {
 });
 
 // ─── LINE OpenID Connect & Session ────────────────
-const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || 'REDACTED_LINE_CHANNEL_SECRET';
-const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || 'REDACTED_LINE_CHANNEL_ID';
-const DEFAULT_LINE_USER_ID = 'REDACTED_LINE_UID';
+const LINE_CHANNEL_SECRET = process.env.LINE_CHANNEL_SECRET || '';
+const LINE_CHANNEL_ID = process.env.LINE_CHANNEL_ID || '';
 
 /**
  * GET /api/auth/me

@@ -1300,54 +1300,6 @@ async function refreshFeeds() {
   }
 }
 
-// ─── LINE Login Handlers ─────────────────────────────
-
-function openLineLoginModal() {
-  const currentUid = Store.getUserId();
-  DOM.lineUidInput.value = currentUid.startsWith('U') ? currentUid : 'REDACTED_LINE_UID';
-  DOM.lineLoginModal.classList.remove('hidden');
-}
-
-function closeLineLoginModal() {
-  DOM.lineLoginModal.classList.add('hidden');
-}
-
-async function handleConfirmLineLogin() {
-  const lineUid = DOM.lineUidInput.value.trim();
-  const displayName = DOM.lineDisplayNameInput.value.trim();
-
-  if (!lineUid) {
-    showToast('請輸入有效的 LINE User ID', 'error');
-    return;
-  }
-
-  try {
-    const authData = await API.loginWithLineUid(lineUid, displayName);
-    Store.setUserProfile({
-      userId: authData.userId,
-      displayName: authData.displayName,
-      authType: 'line'
-    });
-
-    updateUserAccountBadge();
-    closeLineLoginModal();
-    DOM.settingsModal.classList.add('hidden');
-
-    showToast(`成功切換為 LINE 帳號 (${authData.userId.slice(0, 8)}...)`, 'success');
-
-    // Sync new user's Firestore data
-    const remoteData = await API.fetchUserData(authData.userId);
-    if (remoteData && remoteData.storage === 'firestore') {
-      Store.syncWithFirestore(remoteData);
-      renderSidebar();
-      loadCurrentView();
-      refreshFeeds();
-    }
-  } catch (err) {
-    showToast(err.message, 'error');
-  }
-}
-
 // ─── Confirm Dialog ─────────────────────────────────
 
 let confirmCallback = null;

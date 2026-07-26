@@ -129,22 +129,6 @@ export async function saveUserReadState(userId, feedId, lastReadArticleId, readA
 }
 
 /**
- * Authenticate with LINE UID directly
- */
-export async function loginWithLineUid(lineUid, displayName) {
-  const res = await fetch('/api/auth/line/login-uid', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ lineUid, displayName })
-  });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.error || 'LINE authentication failed');
-  }
-  return data;
-}
-
-/**
  * Verify LINE Access Token or ID Token
  */
 export async function verifyLineToken({ accessToken, idToken }) {
